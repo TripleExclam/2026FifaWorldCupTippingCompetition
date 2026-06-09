@@ -282,6 +282,10 @@ def test_bracket_page_shows_latest_simulation(tmp_path, monkeypatch) -> None:
 
     assert response.status_code == 200
     assert "Sim Bot Bracket" in response.text
+    assert "data-bracket-scroll" in response.text
+    assert 'class="bracket-center"' in response.text
+    assert 'class="bracket-round is-left"' in response.text
+    assert 'class="bracket-round is-right"' in response.text
     assert "Mexico" in response.text
     assert "Match 104" in response.text
 

@@ -496,27 +496,65 @@ label {
   gap: 16px;
 }
 
-.bracket-board {
-  display: grid;
-  gap: 14px;
-  grid-template-columns: repeat(5, minmax(210px, 1fr));
+.bracket-scroll {
   margin-bottom: 18px;
   overflow-x: auto;
-  padding-bottom: 4px;
+  padding: 2px 0 10px;
+  scrollbar-gutter: stable;
+}
+
+.bracket-board {
+  --bracket-round-width: 220px;
+  --bracket-center-width: 280px;
+  display: grid;
+  gap: 16px;
+  grid-template-columns:
+    repeat(4, var(--bracket-round-width))
+    var(--bracket-center-width)
+    repeat(4, var(--bracket-round-width));
+  min-height: 880px;
+  min-width: max-content;
+  padding: 0 2px 8px;
+  width: max-content;
 }
 
 .bracket-round {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
-  min-width: 210px;
+  min-width: var(--bracket-round-width);
 }
 
 .bracket-round h2,
-.third-place-strip h2 {
+.bracket-center h2 {
   color: var(--muted);
   font-size: 12px;
   margin: 0;
   text-transform: uppercase;
+}
+
+.bracket-round.is-right h2 {
+  text-align: right;
+}
+
+.bracket-round-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  justify-content: space-around;
+}
+
+.bracket-center {
+  align-content: center;
+  display: grid;
+  gap: 18px;
+  min-width: var(--bracket-center-width);
+}
+
+.bracket-center-group {
+  display: grid;
+  gap: 10px;
 }
 
 .bracket-match {
@@ -569,11 +607,6 @@ label {
   color: var(--warning);
   font-size: 11px;
   overflow-wrap: anywhere;
-}
-
-.third-place-strip {
-  margin-bottom: 18px;
-  max-width: 360px;
 }
 
 .group-standings-grid {

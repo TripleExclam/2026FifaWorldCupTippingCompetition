@@ -331,9 +331,23 @@ function initializeApiTester() {
   });
 }
 
+function initializeBracketScroll() {
+  document.querySelectorAll("[data-bracket-scroll]").forEach((container) => {
+    if (container.scrollWidth <= container.clientWidth) {
+      return;
+    }
+    const center = container.querySelector(".bracket-center");
+    const centeredScrollLeft = center
+      ? center.offsetLeft + center.offsetWidth / 2 - container.clientWidth / 2
+      : (container.scrollWidth - container.clientWidth) / 2;
+    container.scrollLeft = Math.max(0, centeredScrollLeft);
+  });
+}
+
 setInitialTheme();
 initializeThemeToggle();
 formatTimes();
 initializeAutoSubmitControls();
 initializeApiTester();
+initializeBracketScroll();
 document.querySelectorAll("[data-sortable-table]").forEach(initializeTable);
