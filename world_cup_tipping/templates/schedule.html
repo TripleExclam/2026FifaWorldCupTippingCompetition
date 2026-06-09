@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% set title = "Schedule" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>Schedule</h1>
+    <p class="page-subtitle">Fixtures, kickoff times, and results in one place.</p>
+  </div>
+  <span>{{ summary.completed }} complete · {{ summary.scheduled }} scheduled</span>
+</section>
+
+<section class="metric-grid">
+  <div class="metric">
+    <span>Total Matches</span>
+    <strong>{{ summary.total }}</strong>
+  </div>
+  <div class="metric">
+    <span>Completed</span>
+    <strong>{{ summary.completed }}</strong>
+  </div>
+  <div class="metric">
+    <span>Scheduled</span>
+    <strong>{{ summary.scheduled }}</strong>
+  </div>
+</section>
+
+<section class="table-tools">
+  <label>Search <input type="search" data-table-search="schedule-table" placeholder="Team, stage, match number"></label>
+  <label>Stage
+    <select data-table-filter="schedule-table" data-filter-key="stage">
+      <option value="">All stages</option>
+      {% for stage in fixtures|map(attribute="stage")|unique|list %}
+      <option value="{{ stage }}">{{ stage|stage_label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Status
+    <select data-table-filter="schedule-table" data-filter-key="status">
+      <option value="">All statuses</option>
+      <option value="scheduled">Scheduled</option>
+      <option value="completed">Completed</option>
+    </select>
+  </label>
+  <div class="table-actions">
+    <a class="button-link secondary" href="{{ app_path('/schedule.json') }}" download="schedule.json">Download schedule.json</a>
+  </div>
+</section>
+
+<section class="table-wrap">
+  <table id="schedule-table" data-sortable-table>
+    <thead>
+      <tr>
+        <th><button type="button" data-sort-key="number" data-sort-type="number">No.</button></th>
+        <th><button type="button" data-sort-key="stage">Stage</button></th>
+        <th><button type="button" data-sort-key="kickoff" data-sort-type="date">Kickoff</button></th>
+        <th><button type="button" data-sort-key="team_a">Team A</button></th>
+        <th><button type="button" data-sort-key="team_b">Team B</button></th>
+        <th><button type="button" data-sort-key="result">Result</button></th>
+        <th><button type="button" data-sort-key="winner">Winner</button></th>
+        <th><button type="button" data-sort-key="status">Status</button></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for fixture in fixtures %}
+      <tr
+        data-search="{{ fixture.match_number }} {{ fixture.stage|stage_label }} {{ fixture.group or '' }} {{ display_team(fixture, 'a') }} {{ display_team(fixture, 'b') }} {{ fixture.winner or '' }} {{ fixture.status }}"
+        data-stage="{{ fixture.stage }}"
+        data-status="{{ fixture.status }}"
+        data-number="{{ fixture.match_number }}"
+        data-sort-number="{{ fixture.match_number }}"
+        data-sort-stage="{{ fixture.stage|stage_label }}"
+        data-sort-kickoff="{{ fixture.kickoff_at }}"
+        data-sort-team_a="{{ display_team(fixture, 'a') }}"
+        data-sort-team_b="{{ display_team(fixture, 'b') }}"
+        data-sort-result="{% if is_completed_fixture(fixture) %}{{ fixture.score_a }}-{{ fixture.score_b }}{% endif %}"
+        data-sort-winner="{{ fixture.winner or '' }}"
+        data-sort-status="{{ fixture.status }}"
+      >
+        <td class="match-number">{{ fixture.match_number }}</td>
+        <td><span class="stage-pill">{{ fixture.stage|stage_label }}</span>
+          {% if fixture.group %}<span class="muted">Group {{ fixture.group }}</span>{% endif %}
+        </td>
+        <td><time data-utc="{{ fixture.kickoff_at }}">{{ fixture.kickoff_at }}</time></td>
+        <td class="team-name">{{ display_team(fixture, "a") }}</td>
+        <td class="team-name">{{ display_team(fixture, "b") }}</td>
+        <td>
+          {% if is_completed_fixture(fixture) %}
+            <span class="scoreline">{{ fixture.score_a }} - {{ fixture.score_b }}</span>
+          {% else %}
+            <span class="muted">Pending</span>
+          {% endif %}
+        </td>
+        <td>{{ fixture.winner or ("Draw" if is_completed_fixture(fixture) else "TBD") }}</td>
+        <td><span class="status">{{ fixture.status }}</span></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="empty">No fixtures loaded.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

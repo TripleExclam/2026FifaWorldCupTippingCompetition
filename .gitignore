@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.egg-info/
+.env
+.env.*
+!.env.example
+
+# Local import/scrape source artifacts. Do not publish unless you have a license.
+*.xlsx
+*.xls
+**/data/dtai/
+**/data/**/raw/

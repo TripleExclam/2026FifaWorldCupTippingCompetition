@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% set title = "Leaderboard" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>Leaderboard</h1>
+    <p class="page-subtitle">Points are calculated from schedule results and stored predictions.</p>
+  </div>
+  <span>{{ leaderboard|length }} contestants</span>
+</section>
+
+<section class="table-tools">
+  <label>Search <input type="search" data-table-search="leaderboard-table" placeholder="Contestant or status"></label>
+  <label>Status
+    <select data-table-filter="leaderboard-table" data-filter-key="status">
+      <option value="">All statuses</option>
+      <option value="active">Active</option>
+      <option value="inactive">Inactive</option>
+    </select>
+  </label>
+</section>
+
+<section class="table-wrap leaderboard-wrap">
+  <table id="leaderboard-table" data-sortable-table>
+    <thead>
+      <tr>
+        <th><button type="button" data-sort-key="rank" data-sort-type="number">Rank</button></th>
+        <th><button type="button" data-sort-key="name">Contestant</button></th>
+        <th><button type="button" data-sort-key="status">Status</button></th>
+        <th><button type="button" data-sort-key="matches" data-sort-type="number">Scored</button></th>
+        <th><button type="button" data-sort-key="points" data-sort-type="number">Points</button></th>
+        <th>Tools</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in leaderboard %}
+      {% set simulation = latest_simulations.get(row.contestant_id) %}
+      <tr
+        data-search="{{ row.name }} {{ row.status }} {{ simulation.champion if simulation else '' }}"
+        data-status="{{ row.status }}"
+        data-sort-rank="{{ loop.index }}"
+        data-sort-name="{{ row.name }}"
+        data-sort-status="{{ row.status }}"
+        data-sort-matches="{{ row.scored_matches }}"
+        data-sort-points="{{ row.total_points }}"
+      >
+        <td><span class="rank-badge">{{ loop.index }}</span></td>
+        <td><a class="contestant-link" href="{{ app_path('/leaderboard/' ~ row.contestant_id) }}">{{ row.name }}</a></td>
+        <td><span class="status">{{ row.status }}</span></td>
+        <td>{{ row.scored_matches }}</td>
+        <td><strong>{{ "%.1f"|format(row.total_points) }}</strong></td>
+        <td>
+          <div class="action-cluster">
+            <a class="button-link secondary small" href="{{ app_path('/leaderboard/' ~ row.contestant_id ~ '/api-test') }}">Test</a>
+            <a class="button-link secondary small" href="{{ app_path('/leaderboard/' ~ row.contestant_id ~ '/bracket') }}">View</a>
+            {% if is_admin %}
+            <form method="post" action="{{ app_path('/admin/simulations/run') }}">
+              <input type="hidden" name="contestant_id" value="{{ row.contestant_id }}">
+              <button class="secondary small" type="submit">Simulate</button>
+            </form>
+            {% endif %}
+          </div>
+          {% if simulation %}
+            <span class="muted">Champion: {{ simulation.champion or "TBD" }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">No contestants yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

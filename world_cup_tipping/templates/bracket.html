@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% set title = contestant.name ~ " Bracket" %}
+{% block content %}
+{% set stage_names = {
+  "round_of_32": "Round of 32",
+  "round_of_16": "Round of 16",
+  "quarterfinal": "Quarterfinal",
+  "semifinal": "Semifinal",
+  "third_place": "Third Place",
+  "final": "Final"
+} %}
+<section class="page-head">
+  <div>
+    <h1>{{ contestant.name }} Bracket</h1>
+    <p class="page-subtitle">{{ contestant.url }} · {{ contestant.status }}</p>
+  </div>
+  <div class="action-cluster">
+    <a class="button-link secondary" href="{{ app_path('/leaderboard/' ~ contestant.id) }}">Predictions</a>
+    <a class="button-link secondary" href="{{ app_path('/leaderboard/' ~ contestant.id ~ '/api-test') }}">Test API</a>
+    <a class="button-link secondary" href="{{ app_path('/leaderboard') }}">Leaderboard</a>
+    {% if is_admin %}
+    <form method="post" action="{{ app_path('/admin/simulations/run') }}">
+      <input type="hidden" name="contestant_id" value="{{ contestant.id }}">
+      <button type="submit">Simulate</button>
+    </form>
+    {% endif %}
+  </div>
+</section>
+
+{% if simulation %}
+<section class="metric-grid">
+  <div class="metric">
+    <span>Champion</span>
+    <strong>{{ simulation.champion or "TBD" }}</strong>
+  </div>
+  <div class="metric">
+    <span>Runner Up</span>
+    <strong>{{ simulation.runner_up or "TBD" }}</strong>
+  </div>
+  <div class="metric">
+    <span>Fallbacks</span>
+    <strong>{{ simulation.error_count }}</strong>
+  </div>
+</section>
+
+<section class="bracket-board">
+  {% for stage in ["round_of_32", "round_of_16", "quarterfinal", "semifinal", "final"] %}
+  <div class="bracket-round">
+    <h2>{{ stage_names[stage] }}</h2>
+    {% for match in simulation.bracket[stage] %}
+    <article class="bracket-match {% if not match.valid %}is-fallback{% endif %}">
+      <div class="bracket-meta">Match {{ match.match_number }}</div>
+      <div class="bracket-team {% if match.winner == match.team_a %}is-winner{% endif %}">
+        <span>{{ match.team_a or "TBD" }}</span>
+        <strong>{{ match.score_a }}</strong>
+      </div>
+      <div class="bracket-team {% if match.winner == match.team_b %}is-winner{% endif %}">
+        <span>{{ match.team_b or "TBD" }}</span>
+        <strong>{{ match.score_b }}</strong>
+      </div>
+      <div class="bracket-meta">
+        {{ match.winner or "Draw" }}{% if match.confidence is not none %} · {{ "%.0f"|format(match.confidence * 100) }}%{% endif %}
+      </div>
+      {% if match.error %}
+      <div class="bracket-error">{{ match.error }}</div>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</section>
+
+<section class="third-place-strip">
+  <h2>Third Place</h2>
+  {% for match in simulation.bracket.third_place %}
+  <article class="bracket-match {% if not match.valid %}is-fallback{% endif %}">
+    <div class="bracket-meta">Match {{ match.match_number }}</div>
+    <div class="bracket-team {% if match.winner == match.team_a %}is-winner{% endif %}">
+      <span>{{ match.team_a or "TBD" }}</span>
+      <strong>{{ match.score_a }}</strong>
+    </div>
+    <div class="bracket-team {% if match.winner == match.team_b %}is-winner{% endif %}">
+      <span>{{ match.team_b or "TBD" }}</span>
+      <strong>{{ match.score_b }}</strong>
+    </div>
+    <div class="bracket-meta">
+      {{ match.winner or "Draw" }}{% if match.confidence is not none %} · {{ "%.0f"|format(match.confidence * 100) }}%{% endif %}
+    </div>
+    {% if match.error %}
+    <div class="bracket-error">{{ match.error }}</div>
+    {% endif %}
+  </article>
+  {% endfor %}
+</section>
+
+<section class="group-standings-grid">
+  {% for group, rows in simulation.group_standings|dictsort %}
+  <div class="group-card standings-card">
+    <h3>Group {{ group }}</h3>
+    <table class="mini-table">
+      <thead>
+        <tr><th>Team</th><th>Pts</th><th>GD</th><th>GF</th></tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td><span class="rank-badge mini">{{ row.rank }}</span> {{ row.team }}</td>
+          <td>{{ row.points }}</td>
+          <td>{{ row.goal_difference }}</td>
+          <td>{{ row.goals_for }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+</section>
+{% else %}
+<section class="panel empty-state">
+  <h2>No Simulated Bracket</h2>
+  <p class="page-subtitle">Run a simulation from this page while signed in as admin.</p>
+  {% if is_admin %}
+  <form method="post" action="{{ app_path('/admin/simulations/run') }}">
+    <input type="hidden" name="contestant_id" value="{{ contestant.id }}">
+    <button type="submit">Simulate bracket</button>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,12 @@
+[
+  {
+    "contact": "ops@example.test",
+    "id": "example-bot",
+    "last_check_error": null,
+    "last_check_status": "unchecked",
+    "last_checked_at": null,
+    "name": "Example Bot",
+    "status": "inactive",
+    "url": "https://example.test/predict"
+  }
+]
