@@ -1,7 +1,34 @@
+from datetime import UTC, datetime
+
 from fastapi.testclient import TestClient
 
 from world_cup_tipping.main import app, encrypt_admin_cookie
 from world_cup_tipping.storage import JsonStore
+
+
+def simulation_payload(contestant, simulation_id="simulation-1", simulated_at="2026-06-07T00:00:00Z"):
+    return {
+        "id": simulation_id,
+        "contestant_id": contestant["id"],
+        "contestant_name": contestant["name"],
+        "simulated_at": simulated_at,
+        "status": "completed",
+        "error_count": 0,
+        "champion": "A1",
+        "runner_up": "A2",
+        "third_place": "A3",
+        "fourth_place": "A4",
+        "group_standings": {},
+        "matches": [],
+        "bracket": {
+            "round_of_32": [],
+            "round_of_16": [],
+            "quarterfinal": [],
+            "semifinal": [],
+            "third_place": [],
+            "final": [],
+        },
+    }
 
 
 def test_root_redirects_to_tipping_prefix() -> None:
@@ -252,28 +279,7 @@ def test_admin_run_simulation_saves_bracket(tmp_path, monkeypatch) -> None:
     )
 
     async def fake_simulate_contestant(contestant, fixtures, groups, config):
-        return {
-            "id": "simulation-1",
-            "contestant_id": contestant["id"],
-            "contestant_name": contestant["name"],
-            "simulated_at": "2026-06-07T00:00:00Z",
-            "status": "completed",
-            "error_count": 0,
-            "champion": "A1",
-            "runner_up": "A2",
-            "third_place": "A3",
-            "fourth_place": "A4",
-            "group_standings": {},
-            "matches": [],
-            "bracket": {
-                "round_of_32": [],
-                "round_of_16": [],
-                "quarterfinal": [],
-                "semifinal": [],
-                "third_place": [],
-                "final": [],
-            },
-        }
+        return simulation_payload(contestant)
 
     monkeypatch.setattr("world_cup_tipping.main.simulate_contestant", fake_simulate_contestant)
 
@@ -290,6 +296,127 @@ def test_admin_run_simulation_saves_bracket(tmp_path, monkeypatch) -> None:
     simulations = store.read("simulations.json")
     assert simulations[0]["contestant_id"] == "sim-bot"
     assert simulations[0]["champion"] == "A1"
+
+
+def test_public_run_simulation_saves_bracket_and_records_daily_run(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WCT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("world_cup_tipping.main.utc_now", lambda: datetime(2026, 6, 11, 4, 0, tzinfo=UTC))
+    store = JsonStore(tmp_path)
+    store.ensure_defaults()
+    store.write("fixtures.json", [{"match_id": "2026-001", "match_number": 1}])
+    store.write("groups.json", {"A": ["A1", "A2", "A3", "A4"]})
+    store.write(
+        "registry.json",
+        [{"id": "sim-bot", "name": "Sim Bot", "url": "http://example.test/predict", "contact": "", "status": "active"}],
+    )
+
+    async def fake_simulate_contestant(contestant, fixtures, groups, config):
+        return simulation_payload(contestant, simulated_at="2026-06-11T04:00:00Z")
+
+    monkeypatch.setattr("world_cup_tipping.main.simulate_contestant", fake_simulate_contestant)
+
+    client = TestClient(app)
+    response = client.post(
+        "/tipping/simulations/run",
+        data={"contestant_id": "sim-bot"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/tipping/leaderboard/sim-bot/bracket")
+    simulations = store.read("simulations.json")
+    assert simulations[0]["contestant_id"] == "sim-bot"
+    simulation_runs = store.read("simulation_runs.json")
+    assert simulation_runs[0]["contestant_id"] == "sim-bot"
+    assert simulation_runs[0]["run_date"] == "2026-06-11"
+    assert simulation_runs[0]["requested_by"] == "public"
+    assert simulation_runs[0]["status"] == "completed"
+    assert simulation_runs[0]["simulation_id"] == "simulation-1"
+
+
+def test_public_run_simulation_blocks_second_run_for_same_contestant_today(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WCT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("world_cup_tipping.main.utc_now", lambda: datetime(2026, 6, 11, 4, 0, tzinfo=UTC))
+    store = JsonStore(tmp_path)
+    store.ensure_defaults()
+    store.write("fixtures.json", [{"match_id": "2026-001", "match_number": 1}])
+    store.write("groups.json", {"A": ["A1", "A2", "A3", "A4"]})
+    store.write(
+        "registry.json",
+        [{"id": "sim-bot", "name": "Sim Bot", "url": "http://example.test/predict", "contact": "", "status": "active"}],
+    )
+    existing_run = {
+        "id": "existing-run",
+        "contestant_id": "sim-bot",
+        "contestant_name": "Sim Bot",
+        "run_date": "2026-06-11",
+        "requested_at": "2026-06-11T00:00:00Z",
+        "requested_by": "public",
+        "status": "completed",
+    }
+    store.write("simulation_runs.json", [existing_run])
+    simulate_called = False
+
+    async def fake_simulate_contestant(contestant, fixtures, groups, config):
+        nonlocal simulate_called
+        simulate_called = True
+        return {}
+
+    monkeypatch.setattr("world_cup_tipping.main.simulate_contestant", fake_simulate_contestant)
+
+    client = TestClient(app)
+    response = client.post(
+        "/tipping/simulations/run",
+        data={"contestant_id": "sim-bot"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert "already%20been%20simulated%20today" in response.headers["location"]
+    assert simulate_called is False
+    assert store.read("simulations.json") == []
+    assert store.read("simulation_runs.json") == [existing_run]
+
+
+def test_admin_run_simulation_bypasses_public_daily_limit(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WCT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("world_cup_tipping.main.utc_now", lambda: datetime(2026, 6, 11, 4, 0, tzinfo=UTC))
+    store = JsonStore(tmp_path)
+    store.ensure_defaults()
+    store.write("fixtures.json", [{"match_id": "2026-001", "match_number": 1}])
+    store.write("groups.json", {"A": ["A1", "A2", "A3", "A4"]})
+    store.write(
+        "registry.json",
+        [{"id": "sim-bot", "name": "Sim Bot", "url": "http://example.test/predict", "contact": "", "status": "active"}],
+    )
+    existing_run = {
+        "id": "existing-run",
+        "contestant_id": "sim-bot",
+        "contestant_name": "Sim Bot",
+        "run_date": "2026-06-11",
+        "requested_at": "2026-06-11T00:00:00Z",
+        "requested_by": "public",
+        "status": "completed",
+    }
+    store.write("simulation_runs.json", [existing_run])
+
+    async def fake_simulate_contestant(contestant, fixtures, groups, config):
+        return simulation_payload(contestant, simulation_id="admin-simulation", simulated_at="2026-06-11T04:00:00Z")
+
+    monkeypatch.setattr("world_cup_tipping.main.simulate_contestant", fake_simulate_contestant)
+
+    client = TestClient(app)
+    client.cookies.set("admin_session", encrypt_admin_cookie())
+    response = client.post(
+        "/tipping/simulations/run",
+        data={"contestant_id": "sim-bot"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    simulations = store.read("simulations.json")
+    assert simulations[0]["id"] == "admin-simulation"
+    assert store.read("simulation_runs.json") == [existing_run]
 
 
 def test_bracket_page_shows_latest_simulation(tmp_path, monkeypatch) -> None:
@@ -346,6 +473,7 @@ def test_bracket_page_shows_latest_simulation(tmp_path, monkeypatch) -> None:
     assert response.status_code == 200
     assert "Sim Bot Bracket" in response.text
     assert "data-bracket-scroll" in response.text
+    assert 'action="/tipping/simulations/run"' in response.text
     assert 'class="bracket-center"' in response.text
     assert 'class="bracket-round is-left"' in response.text
     assert 'class="bracket-round is-right"' in response.text

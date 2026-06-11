@@ -36,11 +36,13 @@
   <div class="action-cluster">
     <a class="button-link secondary" href="{{ app_path('/leaderboard/' ~ contestant.id ~ '/api-test') }}">Test API</a>
     <a class="button-link secondary" href="{{ app_path('/leaderboard/' ~ contestant.id ~ '/bracket') }}">View bracket</a>
-    {% if is_admin %}
-    <form method="post" action="{{ app_path('/admin/simulations/run') }}">
+    {% if is_admin or not public_simulation_run_today %}
+    <form method="post" action="{{ app_path('/simulations/run') }}">
       <input type="hidden" name="contestant_id" value="{{ contestant.id }}">
       <button type="submit">Simulate</button>
     </form>
+    {% else %}
+    <button type="button" disabled>Simulated today</button>
     {% endif %}
   </div>
 </section>

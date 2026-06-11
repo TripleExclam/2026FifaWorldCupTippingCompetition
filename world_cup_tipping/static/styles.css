@@ -498,6 +498,14 @@ button.secondary {
   color: var(--text);
 }
 
+button:disabled,
+button:disabled:hover {
+  background: var(--table-head);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
 .theme-toggle {
   min-height: 32px;
   padding: 6px 10px;

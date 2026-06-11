@@ -60,6 +60,7 @@ data/
   scores.json
   run_log.json
   simulations.json
+  simulation_runs.json
 ```
 
 ## Local Development
@@ -90,7 +91,7 @@ uv run python -m world_cup_tipping.cron run-due
 
 The schedule page is the source of truth for fixtures and results. There is no separate results page.
 
-Leaderboard contestant pages can also store simulated full-tournament brackets in `data/simulations.json`. Admins can run a simulation for any contestant; the app calls that contestant's `/predict` endpoint for all 104 fixtures, builds predicted group tables, resolves knockout placeholders, and saves the latest bracket visualisation.
+Leaderboard contestant pages can also store simulated full-tournament brackets in `data/simulations.json`. Anyone can run a simulation for a contestant; public runs are limited to one per contestant per UTC day in `data/simulation_runs.json`, while admins can rerun as needed. The app calls that contestant's `/predict` endpoint for all 104 fixtures, builds predicted group tables, resolves knockout placeholders, and saves the latest bracket visualisation.
 
 Contestant pages also include an API tester at `/tipping/leaderboard/{contestant_id}/api-test`. It loads editable JSON payloads matching the runner request shape for next, group, and knockout fixtures, then the browser sends the POST directly to the stored contestant endpoint and validates the response using the same prediction rules as the cron runner. Contestant endpoints need browser-accessible CORS if they are hosted on a different origin.
 
@@ -347,6 +348,7 @@ The platform has these components:
 - `registry.json`: contestant names, server URLs, contact details, and status
 - registry validator: checks registry format and test-calls contestant servers
 - prediction runner: cron job that calls contestant APIs before each match
+- `simulation_runs.json`: public bracket simulation daily run ledger
 - result importer: initially manual or semi-manual, later scraped from a reliable source
 - scorer: calculates points when results are known
 - leaderboard backend: Python service backed by JSON files

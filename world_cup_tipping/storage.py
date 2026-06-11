@@ -19,6 +19,7 @@ DEFAULT_FILES: dict[str, Any] = {
     "scores.json": [],
     "run_log.json": [],
     "simulations.json": [],
+    "simulation_runs.json": [],
 }
 
 

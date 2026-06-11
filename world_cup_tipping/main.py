@@ -23,6 +23,7 @@ from .models import (
     STAGE_LABELS,
     completed_results,
     display_team,
+    isoformat_z,
     is_completed_fixture,
     is_resolved_fixture,
     parse_iso_z,
@@ -37,6 +38,7 @@ from .storage import PROJECT_ROOT, get_store
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 BASE_PATH = "/tipping"
+SIMULATION_RUN_RETENTION = 1000
 app = FastAPI(title="World Cup Tipping")
 
 
@@ -165,7 +167,9 @@ def load_context(request: Request) -> dict[str, Any]:
     predictions = store.read("predictions.json")
     scores = store.read("scores.json")
     simulations = store.read("simulations.json")
+    simulation_runs = store.read("simulation_runs.json")
     run_log = list(reversed(store.read("run_log.json")[-10:]))
+    run_date = simulation_run_date()
     return {
         "request": request,
         "fixtures": fixtures,
@@ -174,10 +178,16 @@ def load_context(request: Request) -> dict[str, Any]:
         "predictions": predictions,
         "scores": scores,
         "simulations": simulations,
+        "simulation_runs": simulation_runs,
         "latest_simulations": {
             contestant["id"]: latest_simulation(simulations, contestant["id"])
             for contestant in registry
         },
+        "public_simulation_runs_today": public_simulation_runs_by_contestant_today(
+            simulation_runs,
+            [contestant["id"] for contestant in registry],
+            run_date,
+        ),
         "fixture_prediction_rows": fixture_prediction_rows_by_match(fixtures, registry, predictions, scores),
         "leaderboard": leaderboard(registry, scores),
         "summary": schedule_summary(fixtures),
@@ -288,6 +298,45 @@ def latest_simulation(simulations: list[dict[str, Any]], contestant_id: str) -> 
     return sorted(contestant_simulations, key=lambda item: item.get("simulated_at", ""), reverse=True)[0]
 
 
+def simulation_run_date() -> str:
+    return utc_now().date().isoformat()
+
+
+def public_simulation_run_today(
+    simulation_runs: list[dict[str, Any]],
+    contestant_id: str,
+    run_date: str | None = None,
+) -> dict[str, Any] | None:
+    run_date = run_date or simulation_run_date()
+    return next(
+        (
+            run
+            for run in simulation_runs
+            if run.get("contestant_id") == contestant_id
+            and run.get("run_date") == run_date
+            and run.get("requested_by", "public") == "public"
+        ),
+        None,
+    )
+
+
+def public_simulation_runs_by_contestant_today(
+    simulation_runs: list[dict[str, Any]],
+    contestant_ids: list[str],
+    run_date: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    runs_today: dict[str, dict[str, Any]] = {}
+    for contestant_id in contestant_ids:
+        run = public_simulation_run_today(simulation_runs, contestant_id, run_date)
+        if run:
+            runs_today[contestant_id] = run
+    return runs_today
+
+
+def prune_simulation_runs(simulation_runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(simulation_runs, key=lambda item: item.get("requested_at", ""), reverse=True)[:SIMULATION_RUN_RETENTION]
+
+
 def save_simulation_result(store, simulation: dict[str, Any]) -> None:
     with store.locked():
         simulations = store.read("simulations.json")
@@ -301,6 +350,23 @@ def save_simulation_result(store, simulation: dict[str, Any]) -> None:
             pruned.extend(sorted(rows, key=lambda item: item.get("simulated_at", ""), reverse=True)[:3])
         pruned.sort(key=lambda item: item.get("simulated_at", ""), reverse=True)
         store.write("simulations.json", pruned[:100])
+
+
+def update_simulation_run(store, run_id: str, updates: dict[str, Any]) -> None:
+    with store.locked():
+        simulation_runs = store.read("simulation_runs.json")
+        for run in simulation_runs:
+            if run.get("id") == run_id:
+                run.update(updates)
+                break
+        store.write("simulation_runs.json", prune_simulation_runs(simulation_runs))
+
+
+def simulation_redirect(contestant_id: str, message: str) -> RedirectResponse:
+    return RedirectResponse(
+        f"{app_path('/leaderboard/' + contestant_id + '/bracket')}?message={quote(message)}",
+        status_code=303,
+    )
 
 
 @app.get("/")
@@ -352,6 +418,7 @@ def contestant_page(request: Request, contestant_id: str):
         },
     )
     context["latest_simulation"] = latest_simulation(context["simulations"], contestant_id)
+    context["public_simulation_run_today"] = context["public_simulation_runs_today"].get(contestant_id)
     return templates.TemplateResponse(request, "contestant.html", context)
 
 
@@ -363,6 +430,7 @@ def contestant_bracket_page(request: Request, contestant_id: str):
         raise HTTPException(status_code=404, detail="Contestant not found")
     context["contestant"] = contestant
     context["simulation"] = latest_simulation(context["simulations"], contestant_id)
+    context["public_simulation_run_today"] = context["public_simulation_runs_today"].get(contestant_id)
     return templates.TemplateResponse(request, "bracket.html", context)
 
 
@@ -624,30 +692,87 @@ async def run_due(
 
 
 @router.post("/admin/simulations/run")
-async def run_simulation(
+async def run_admin_simulation(
     request: Request,
     contestant_id: str = Form(...),
     admin_session_cookie: str | None = Cookie(default=None, alias="admin_session"),
 ):
     require_admin(request, admin_session_cookie)
+    return await run_simulation_for_contestant(contestant_id, enforce_daily_limit=False)
+
+
+@router.post("/simulations/run")
+async def run_public_simulation(
+    request: Request,
+    contestant_id: str = Form(...),
+    admin_session_cookie: str | None = Cookie(default=None, alias="admin_session"),
+):
+    enforce_daily_limit = not is_admin(request, admin_session_cookie)
+    return await run_simulation_for_contestant(contestant_id, enforce_daily_limit=enforce_daily_limit)
+
+
+async def run_simulation_for_contestant(contestant_id: str, enforce_daily_limit: bool) -> RedirectResponse:
     store = get_store()
+    run_date = simulation_run_date()
+    run_id: str | None = None
     with store.locked():
         fixtures = store.read("fixtures.json")
         groups = store.read("groups.json")
         registry = store.read("registry.json")
-    contestant = next((item for item in registry if item["id"] == contestant_id), None)
-    if contestant is None:
-        raise HTTPException(status_code=404, detail="Contestant not found")
+        simulation_runs = store.read("simulation_runs.json")
+        contestant = next((item for item in registry if item["id"] == contestant_id), None)
+        if contestant is None:
+            raise HTTPException(status_code=404, detail="Contestant not found")
+        if enforce_daily_limit and public_simulation_run_today(simulation_runs, contestant_id, run_date):
+            return simulation_redirect(
+                contestant_id,
+                f"{contestant.get('name', contestant_id)} has already been simulated today. Try again tomorrow.",
+            )
+        if enforce_daily_limit:
+            run_id = str(uuid4())
+            simulation_runs.append(
+                {
+                    "id": run_id,
+                    "contestant_id": contestant_id,
+                    "contestant_name": contestant.get("name", contestant_id),
+                    "run_date": run_date,
+                    "requested_at": isoformat_z(utc_now()),
+                    "requested_by": "public",
+                    "status": "started",
+                }
+            )
+            store.write("simulation_runs.json", prune_simulation_runs(simulation_runs))
 
-    simulation = await simulate_contestant(contestant, fixtures, groups, SimulationConfig())
-    save_simulation_result(store, simulation)
+    try:
+        simulation = await simulate_contestant(contestant, fixtures, groups, SimulationConfig())
+        save_simulation_result(store, simulation)
+    except Exception as exc:
+        if run_id:
+            update_simulation_run(
+                store,
+                run_id,
+                {
+                    "completed_at": isoformat_z(utc_now()),
+                    "status": "failed",
+                    "error": f"{type(exc).__name__}: {exc}",
+                },
+            )
+        raise
+
+    if run_id:
+        update_simulation_run(
+            store,
+            run_id,
+            {
+                "completed_at": isoformat_z(utc_now()),
+                "status": "completed",
+                "simulation_id": simulation.get("id"),
+            },
+        )
     message = f"Simulated bracket for {contestant.get('name', contestant_id)}"
     if simulation["error_count"]:
         message += f" with {simulation['error_count']} fallback predictions"
-    return RedirectResponse(
-        f"{app_path('/leaderboard/' + contestant_id + '/bracket')}?message={quote(message)}",
-        status_code=303,
-    )
+    return simulation_redirect(contestant_id, message)
 
 
 @router.get("/schedule.json")

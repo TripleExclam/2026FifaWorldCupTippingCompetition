@@ -89,7 +89,7 @@ fi
 
 run_root install -d -m 750 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$DATA_DIR"
 
-for filename in fixtures.json groups.json registry.json predictions.json scores.json run_log.json simulations.json; do
+for filename in fixtures.json groups.json registry.json predictions.json scores.json run_log.json simulations.json simulation_runs.json; do
   if [ -f "$APP_DIR/data/$filename" ] && [ ! -f "$DATA_DIR/$filename" ]; then
     run_root install -m 600 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$APP_DIR/data/$filename" "$DATA_DIR/$filename"
   fi

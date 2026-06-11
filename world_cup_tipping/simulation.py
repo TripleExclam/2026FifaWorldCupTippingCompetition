@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import httpx
 
-from .models import isoformat_z, result_key, utc_now
+from .models import isoformat_z, is_completed_fixture, result_key, utc_now, winner_from_score
 from .scoring import validate_prediction
 
 
@@ -47,19 +47,23 @@ async def simulate_contestant(
 
     for fixture in sorted_fixtures:
         simulation_fixture = _resolved_fixture(fixture, group_rankings, outcomes, used_third_groups)
-        if consecutive_errors >= config.consecutive_error_limit:
-            raw_response = None
-            error = f"Simulation fallback after {consecutive_errors} consecutive invalid or failed predictions"
+        if is_completed_fixture(simulation_fixture):
+            match = _actual_match(simulation_fixture)
+            consecutive_errors = 0
         else:
-            raw_response, error = await _call_prediction(prediction_client, simulation_fixture, previous_results, config)
-        valid = False
-        prediction: dict[str, Any] | None = None
-        if raw_response is not None:
-            valid, prediction, validation_error = validate_prediction(simulation_fixture, raw_response)
-            error = validation_error or error
+            if consecutive_errors >= config.consecutive_error_limit:
+                raw_response = None
+                error = f"Simulation fallback after {consecutive_errors} consecutive invalid or failed predictions"
+            else:
+                raw_response, error = await _call_prediction(prediction_client, simulation_fixture, previous_results, config)
+            valid = False
+            prediction: dict[str, Any] | None = None
+            if raw_response is not None:
+                valid, prediction, validation_error = validate_prediction(simulation_fixture, raw_response)
+                error = validation_error or error
 
-        match = _simulated_match(simulation_fixture, prediction, valid, error, raw_response)
-        consecutive_errors = 0 if match["valid"] else consecutive_errors + 1
+            match = _simulated_match(simulation_fixture, prediction, valid, error, raw_response)
+            consecutive_errors = 0 if match["valid"] else consecutive_errors + 1
         simulated_matches.append(match)
         previous_results.append(_result_payload(match))
         outcomes[match["match_number"]] = {
@@ -313,6 +317,7 @@ def _simulated_match(
         "confidence": prediction.get("confidence"),
         "valid": valid,
         "fallback_used": fallback_used,
+        "actual_result": False,
         "error": error,
         "raw_response": raw_response,
     }
@@ -350,6 +355,40 @@ def _loser(fixture: dict[str, Any], winner: str | None) -> str | None:
     if winner == fixture.get("team_b"):
         return fixture.get("team_a")
     return None
+
+
+def _actual_match(fixture: dict[str, Any]) -> dict[str, Any]:
+    winner = _actual_match_winner(fixture)
+    loser = _loser(fixture, winner)
+    return {
+        "match_id": fixture["match_id"],
+        "match_number": fixture["match_number"],
+        "stage": fixture["stage"],
+        "group": fixture.get("group"),
+        "team_a": fixture.get("team_a"),
+        "team_b": fixture.get("team_b"),
+        "score_a": fixture["score_a"],
+        "score_b": fixture["score_b"],
+        "winner": winner,
+        "loser": loser,
+        "predicted_winner": None,
+        "confidence": None,
+        "valid": True,
+        "fallback_used": False,
+        "actual_result": True,
+        "error": None,
+        "raw_response": None,
+    }
+
+
+def _actual_match_winner(fixture: dict[str, Any]) -> str | None:
+    score_winner = winner_from_score(
+        fixture.get("team_a"),
+        fixture.get("team_b"),
+        fixture["score_a"],
+        fixture["score_b"],
+    )
+    return score_winner or fixture.get("winner")
 
 
 def _result_payload(match: dict[str, Any]) -> dict[str, Any]:

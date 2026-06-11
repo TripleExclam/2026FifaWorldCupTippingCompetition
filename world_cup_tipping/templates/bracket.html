@@ -49,11 +49,13 @@
     <a class="button-link secondary" href="{{ app_path('/leaderboard/' ~ contestant.id) }}">Predictions</a>
     <a class="button-link secondary" href="{{ app_path('/leaderboard/' ~ contestant.id ~ '/api-test') }}">Test API</a>
     <a class="button-link secondary" href="{{ app_path('/leaderboard') }}">Leaderboard</a>
-    {% if is_admin %}
-    <form method="post" action="{{ app_path('/admin/simulations/run') }}">
+    {% if is_admin or not public_simulation_run_today %}
+    <form method="post" action="{{ app_path('/simulations/run') }}">
       <input type="hidden" name="contestant_id" value="{{ contestant.id }}">
       <button type="submit">Simulate</button>
     </form>
+    {% else %}
+    <button type="button" disabled>Simulated today</button>
     {% endif %}
   </div>
 </section>
@@ -150,12 +152,14 @@
 {% else %}
 <section class="panel empty-state">
   <h2>No Simulated Bracket</h2>
-  <p class="page-subtitle">Run a simulation from this page while signed in as admin.</p>
-  {% if is_admin %}
-  <form method="post" action="{{ app_path('/admin/simulations/run') }}">
+  <p class="page-subtitle">Run a simulation from this page. Public runs are limited to once per contestant each day.</p>
+  {% if is_admin or not public_simulation_run_today %}
+  <form method="post" action="{{ app_path('/simulations/run') }}">
     <input type="hidden" name="contestant_id" value="{{ contestant.id }}">
     <button type="submit">Simulate bracket</button>
   </form>
+  {% else %}
+  <button type="button" disabled>Simulated today</button>
   {% endif %}
 </section>
 {% endif %}
