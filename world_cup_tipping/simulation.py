@@ -20,7 +20,7 @@ MATCH_PLACEHOLDER_RE = re.compile(r"^(Winner|Loser) ([0-9]+)$")
 
 @dataclass(frozen=True)
 class SimulationConfig:
-    timeout_seconds: float = 5.0
+    timeout_seconds: float = 15.0
     retries: int = 1
     consecutive_error_limit: int = 3
 

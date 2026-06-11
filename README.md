@@ -330,7 +330,7 @@ Recommended defaults:
 
 - predictions lock 30 minutes before kickoff
 - each server gets one prediction per match
-- request timeout is 5 seconds
+- request timeout is 15 seconds
 - the runner may retry once after a short delay
 - the first valid locked prediction is used
 - invalid responses score `0`

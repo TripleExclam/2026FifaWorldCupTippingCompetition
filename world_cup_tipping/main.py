@@ -844,7 +844,7 @@ async def validate_endpoint(url: str, fixtures: list[dict[str, Any]]) -> dict[st
         "previous_results": completed_results(fixtures),
     }
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
             response = await client.post(url, json=payload)
             response.raise_for_status()
             response_json = response.json()
