@@ -687,8 +687,11 @@ async def run_due(
     admin_session_cookie: str | None = Cookie(default=None, alias="admin_session"),
 ):
     require_admin(request, admin_session_cookie)
-    result = await run_due_once(get_store(), RunnerConfig())
-    return redirect_to_admin(f"Run attempted {result['jobs_attempted']} jobs")
+    result = await run_due_once(get_store(), RunnerConfig(scrape_results=True))
+    message = f"Run attempted {result['jobs_attempted']} jobs and updated {result['results_updated']} results"
+    if result.get("result_scrape_error"):
+        message += f"; result scrape failed: {result['result_scrape_error']}"
+    return redirect_to_admin(message)
 
 
 @router.post("/admin/simulations/run")

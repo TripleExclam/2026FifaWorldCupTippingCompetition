@@ -9,6 +9,7 @@ from uuid import uuid4
 import httpx
 
 from .models import completed_results, is_resolved_fixture, isoformat_z, parse_iso_z, utc_now
+from .result_scraper import ResultSource, scrape_results_once
 from .scoring import score_completed_matches, validate_prediction
 from .storage import JsonStore, get_store
 
@@ -19,6 +20,7 @@ class RunnerConfig:
     lookahead_hours: int = 24
     timeout_seconds: float = 15.0
     retries: int = 1
+    scrape_results: bool = False
 
 
 def due_prediction_jobs(
@@ -45,10 +47,23 @@ def due_prediction_jobs(
     return jobs
 
 
-async def run_due_once(store: JsonStore | None = None, config: RunnerConfig | None = None, now: datetime | None = None) -> dict[str, Any]:
+async def run_due_once(
+    store: JsonStore | None = None,
+    config: RunnerConfig | None = None,
+    now: datetime | None = None,
+    result_source: ResultSource | None = None,
+) -> dict[str, Any]:
     store = store or get_store()
     config = config or RunnerConfig()
     now = (now or utc_now()).astimezone(UTC)
+    result_report: dict[str, Any] | None = None
+    result_scrape_error: str | None = None
+
+    if config.scrape_results:
+        try:
+            result_report = await scrape_results_once(store, source=result_source)
+        except Exception as exc:
+            result_scrape_error = f"{type(exc).__name__}: {exc}"
 
     with store.locked():
         fixtures = store.read("fixtures.json")
@@ -79,6 +94,11 @@ async def run_due_once(store: JsonStore | None = None, config: RunnerConfig | No
         entry = {
             "id": str(uuid4()),
             "ran_at": isoformat_z(now),
+            "results_checked": result_report["fetched"] if result_report else 0,
+            "results_updated": result_report["result_updates"] if result_report else 0,
+            "fixture_teams_updated": result_report["team_updates"] if result_report else 0,
+            "stale_scores_removed": result_report["stale_scores_removed"] if result_report else 0,
+            "result_scrape_error": result_scrape_error,
             "jobs_attempted": len(jobs),
             "predictions_recorded": len(new_predictions),
             "scores_added": len(scores) - score_count_before,

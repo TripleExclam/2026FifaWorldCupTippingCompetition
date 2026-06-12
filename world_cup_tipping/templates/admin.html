@@ -48,7 +48,7 @@
     </form>
     <div class="mini-log">
       {% for entry in run_log %}
-        <div>{{ entry.ran_at }} · {{ entry.jobs_attempted }} jobs · {{ entry.scores_total }} scores</div>
+        <div>{{ entry.ran_at }} · {{ entry.results_updated or 0 }} results · {{ entry.jobs_attempted }} jobs · {{ entry.scores_total }} scores</div>
       {% else %}
         <div>No runs yet.</div>
       {% endfor %}

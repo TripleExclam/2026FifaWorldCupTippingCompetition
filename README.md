@@ -89,6 +89,19 @@ Run the cron workflow manually:
 uv run python -m world_cup_tipping.cron run-due
 ```
 
+`run-due` automatically checks FIFA's official match API before calling
+contestant endpoints and scoring completed fixtures. The source is the
+structured API used by FIFA's scores and fixtures page:
+`https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/scores-fixtures?country=AU&wtw-filter=ALL`.
+To inspect result changes without writing files, run:
+
+```bash
+uv run python -m world_cup_tipping.cron scrape-results --dry-run
+```
+
+Use `--no-scrape-results` with `run-due` if FIFA is unavailable and you need to
+run the prediction/scoring workflow against the current local JSON files only.
+
 The schedule page is the source of truth for fixtures and results. There is no separate results page.
 
 Leaderboard contestant pages can also store simulated full-tournament brackets in `data/simulations.json`. Anyone can run a simulation for a contestant; public runs are limited to one per contestant per UTC day in `data/simulation_runs.json`, while admins can rerun as needed. The app calls that contestant's `/predict` endpoint for all 104 fixtures, builds predicted group tables, resolves knockout placeholders, and saves the latest bracket visualisation.
@@ -108,6 +121,8 @@ The recommended production shape is:
 - bind only to `127.0.0.1:8000`
 - point Cloudflare Tunnel at `http://127.0.0.1:8000`
 - enable the systemd timer for `python -m world_cup_tipping.cron run-due`
+- keep the timer frequent enough to pick up FIFA result corrections before the
+  next match's prediction window
 - keep admin secrets in `/etc/world-cup-tipping.env`
 - put Cloudflare Access in front of `/tipping/admin*`
 
