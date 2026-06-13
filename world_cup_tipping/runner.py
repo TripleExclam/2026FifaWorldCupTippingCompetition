@@ -32,7 +32,11 @@ def due_prediction_jobs(
 ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
     lock_deadline = now + timedelta(minutes=config.lock_minutes)
     lookahead_deadline = now + timedelta(hours=config.lookahead_hours)
-    existing = {(prediction["contestant_id"], prediction["match_id"]) for prediction in predictions}
+    existing = {
+        _prediction_key(prediction)
+        for prediction in predictions
+        if _is_valid_prediction_record(prediction)
+    }
     active_contestants = [contestant for contestant in registry if contestant.get("status", "active") == "active"]
     jobs = []
     for fixture in fixtures:
@@ -83,11 +87,7 @@ async def run_due_once(
         scores = store.read("scores.json")
         run_log = store.read("run_log.json")
 
-        existing = {(prediction["contestant_id"], prediction["match_id"]) for prediction in predictions}
-        for prediction in new_predictions:
-            if (prediction["contestant_id"], prediction["match_id"]) not in existing:
-                predictions.append(prediction)
-                existing.add((prediction["contestant_id"], prediction["match_id"]))
+        predictions, recorded_count = _merge_prediction_attempts(predictions, new_predictions)
 
         score_count_before = len(scores)
         scores = score_completed_matches(fixtures, registry, predictions, scores)
@@ -100,7 +100,7 @@ async def run_due_once(
             "stale_scores_removed": result_report["stale_scores_removed"] if result_report else 0,
             "result_scrape_error": result_scrape_error,
             "jobs_attempted": len(jobs),
-            "predictions_recorded": len(new_predictions),
+            "predictions_recorded": recorded_count,
             "scores_added": len(scores) - score_count_before,
             "scores_total": len(scores),
         }
@@ -109,6 +109,55 @@ async def run_due_once(
         store.write("scores.json", scores)
         store.write("run_log.json", run_log[-200:])
     return entry
+
+
+def _prediction_key(prediction: dict[str, Any]) -> tuple[str, str]:
+    return prediction["contestant_id"], prediction["match_id"]
+
+
+def _is_valid_prediction_record(prediction: dict[str, Any]) -> bool:
+    return bool(prediction.get("valid"))
+
+
+def _merge_prediction_attempts(
+    predictions: list[dict[str, Any]],
+    new_predictions: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    merged: list[dict[str, Any]] = []
+    index_by_key: dict[tuple[str, str], int] = {}
+    valid_keys: set[tuple[str, str]] = set()
+
+    for prediction in predictions:
+        _merge_prediction_record(merged, index_by_key, valid_keys, prediction)
+
+    recorded_count = 0
+    for prediction in new_predictions:
+        if _merge_prediction_record(merged, index_by_key, valid_keys, prediction):
+            recorded_count += 1
+
+    return merged, recorded_count
+
+
+def _merge_prediction_record(
+    merged: list[dict[str, Any]],
+    index_by_key: dict[tuple[str, str], int],
+    valid_keys: set[tuple[str, str]],
+    prediction: dict[str, Any],
+) -> bool:
+    key = _prediction_key(prediction)
+    if key in valid_keys:
+        return False
+
+    existing_index = index_by_key.get(key)
+    if existing_index is None:
+        index_by_key[key] = len(merged)
+        merged.append(prediction)
+    else:
+        merged[existing_index] = prediction
+
+    if _is_valid_prediction_record(prediction):
+        valid_keys.add(key)
+    return True
 
 
 async def _call_prediction_jobs(

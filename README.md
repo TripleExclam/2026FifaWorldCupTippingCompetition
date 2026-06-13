@@ -346,12 +346,13 @@ The organiser should publish final values before the tournament starts.
 Recommended defaults:
 
 - predictions lock 30 minutes before kickoff
-- each server gets one prediction per match
+- each server gets one valid locked prediction per match
 - request timeout is 15 seconds
 - the runner may retry once after a short delay
+- failed or invalid attempts may be retried by later cron runs until predictions lock
 - the first valid locked prediction is used
-- invalid responses score `0`
-- missing responses score `0`
+- invalid responses still present at lock score `0`
+- missing responses at lock score `0`
 - late responses score `0`
 - predictions are hidden until the match locks
 - request and response logs are retained for disputes

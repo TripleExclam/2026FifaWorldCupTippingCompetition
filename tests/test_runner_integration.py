@@ -26,7 +26,8 @@ def wait_for_server(url: str, timeout: float = 10.0) -> None:
     raise RuntimeError(f"Server did not start: {url}")
 
 
-def test_fixed_server_prediction_and_scoring(tmp_path: Path) -> None:
+def test_fixed_server_prediction_and_scoring(tmp_path: Path, free_tcp_port: int) -> None:
+    base_url = f"http://127.0.0.1:{free_tcp_port}"
     process = subprocess.Popen(
         [
             sys.executable,
@@ -36,14 +37,14 @@ def test_fixed_server_prediction_and_scoring(tmp_path: Path) -> None:
             "--host",
             "127.0.0.1",
             "--port",
-            "8001",
+            str(free_tcp_port),
         ],
         cwd=Path(__file__).resolve().parents[1],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
     try:
-        wait_for_server("http://127.0.0.1:8001/health")
+        wait_for_server(f"{base_url}/health")
         now = utc_now()
         store = JsonStore(tmp_path)
         store.ensure_defaults()
@@ -73,7 +74,7 @@ def test_fixed_server_prediction_and_scoring(tmp_path: Path) -> None:
                 {
                     "id": "fixed",
                     "name": "Fixed Bot",
-                    "url": "http://127.0.0.1:8001/predict",
+                    "url": f"{base_url}/predict",
                     "contact": "local",
                     "status": "active",
                 }

@@ -46,6 +46,7 @@
     <p class="page-subtitle">{{ contestant.url }} · {{ contestant.status }}</p>
   </div>
   <div class="action-cluster">
+    <a class="button-link secondary" href="{{ app_path('/leaderboard/' ~ contestant.id ~ '/tips') }}">Tips only</a>
     <a class="button-link secondary" href="{{ app_path('/leaderboard/' ~ contestant.id) }}">Predictions</a>
     <a class="button-link secondary" href="{{ app_path('/leaderboard/' ~ contestant.id ~ '/api-test') }}">Test API</a>
     <a class="button-link secondary" href="{{ app_path('/leaderboard') }}">Leaderboard</a>

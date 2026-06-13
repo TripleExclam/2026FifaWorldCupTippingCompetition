@@ -237,6 +237,27 @@ def contestant_prediction_rows(
     return rows
 
 
+def contestant_tip_rows(
+    contestant_id: str,
+    fixtures: list[dict[str, Any]],
+    predictions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    predictions_by_key = prediction_lookup(predictions)
+    rows = []
+    for fixture in fixtures:
+        prediction_record = predictions_by_key.get((contestant_id, fixture["match_id"]))
+        if not prediction_record:
+            continue
+        rows.append(
+            {
+                "fixture": fixture,
+                "prediction_record": prediction_record,
+                "prediction": prediction_record.get("prediction"),
+            }
+        )
+    return rows
+
+
 def fixture_prediction_rows_by_match(
     fixtures: list[dict[str, Any]],
     registry: list[dict[str, Any]],
@@ -420,6 +441,21 @@ def contestant_page(request: Request, contestant_id: str):
     context["latest_simulation"] = latest_simulation(context["simulations"], contestant_id)
     context["public_simulation_run_today"] = context["public_simulation_runs_today"].get(contestant_id)
     return templates.TemplateResponse(request, "contestant.html", context)
+
+
+@router.get("/leaderboard/{contestant_id}/tips")
+def contestant_tips_page(request: Request, contestant_id: str):
+    context = load_context(request)
+    contestant = next((item for item in context["registry"] if item["id"] == contestant_id), None)
+    if contestant is None:
+        raise HTTPException(status_code=404, detail="Contestant not found")
+    context["contestant"] = contestant
+    context["tip_rows"] = contestant_tip_rows(
+        contestant_id,
+        context["fixtures"],
+        context["predictions"],
+    )
+    return templates.TemplateResponse(request, "tips.html", context)
 
 
 @router.get("/leaderboard/{contestant_id}/bracket")

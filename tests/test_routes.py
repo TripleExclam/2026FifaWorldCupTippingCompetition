@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
@@ -59,6 +60,37 @@ def test_tipping_pages_and_assets_are_served_under_prefix() -> None:
     assert client.get("/tipping/static/favicon.svg").status_code == 200
     assert client.get("/favicon.ico").headers["content-type"].startswith("image/svg+xml")
     assert client.get("/tipping/favicon.ico").headers["content-type"].startswith("image/svg+xml")
+
+
+def test_leaderboard_page_aggregates_tied_scores_into_ranks(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WCT_DATA_DIR", str(tmp_path))
+    store = JsonStore(tmp_path)
+    store.ensure_defaults()
+    store.write(
+        "registry.json",
+        [
+            {"id": "alpha", "name": "Alpha", "status": "active"},
+            {"id": "bravo", "name": "Bravo", "status": "active"},
+            {"id": "charlie", "name": "Charlie", "status": "active"},
+            {"id": "delta", "name": "Delta", "status": "active"},
+        ],
+    )
+    store.write(
+        "scores.json",
+        [
+            {"contestant_id": "alpha", "match_id": "2026-001", "points": 1.5},
+            {"contestant_id": "alpha", "match_id": "2026-002", "points": 1.5},
+            {"contestant_id": "bravo", "match_id": "2026-001", "points": 1.5},
+            {"contestant_id": "charlie", "match_id": "2026-001", "points": 1.5},
+        ],
+    )
+
+    client = TestClient(app)
+    response = client.get("/tipping/leaderboard")
+
+    assert response.status_code == 200
+    assert re.findall(r'<span class="rank-badge">(\d+)</span>', response.text) == ["1", "2", "2", "4"]
+    assert re.findall(r'data-sort-rank="(\d+)"', response.text) == ["1", "2", "2", "4"]
 
 
 def test_healthz_reports_basic_runtime_status(tmp_path, monkeypatch) -> None:
@@ -186,6 +218,82 @@ def test_schedule_page_shows_fixture_prediction_details(tmp_path, monkeypatch) -
     assert "exact_score" in response.text
     assert "Quiet Bot" in response.text
     assert "No prediction" in response.text
+
+
+def test_contestant_tips_page_hides_outcomes_and_scores(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WCT_DATA_DIR", str(tmp_path))
+    store = JsonStore(tmp_path)
+    store.ensure_defaults()
+    store.write(
+        "fixtures.json",
+        [
+            {
+                "match_id": "2026-001",
+                "match_number": 1,
+                "stage": "group",
+                "group": "A",
+                "team_a": "Mexico",
+                "team_b": "South Africa",
+                "team_a_placeholder": None,
+                "team_b_placeholder": None,
+                "kickoff_at": "2026-06-11T19:00:00Z",
+                "score_a": 3,
+                "score_b": 2,
+                "winner": "South Africa",
+                "status": "completed",
+            },
+            {
+                "match_id": "2026-002",
+                "match_number": 2,
+                "stage": "group",
+                "group": "A",
+                "team_a": "Canada",
+                "team_b": "Switzerland",
+                "team_a_placeholder": None,
+                "team_b_placeholder": None,
+                "kickoff_at": "2026-06-12T00:00:00Z",
+                "status": "scheduled",
+            },
+        ],
+    )
+    store.write(
+        "registry.json",
+        [{"id": "checked-bot", "name": "Checked Bot", "url": "http://example.test/predict", "contact": "", "status": "active"}],
+    )
+    store.write(
+        "predictions.json",
+        [
+            {
+                "contestant_id": "checked-bot",
+                "match_id": "2026-001",
+                "valid": True,
+                "prediction": {"predicted_score_a": 1, "predicted_score_b": 0, "predicted_winner": "Mexico", "confidence": 0.8},
+            }
+        ],
+    )
+    store.write(
+        "scores.json",
+        [{"contestant_id": "checked-bot", "match_id": "2026-001", "points": 1.5, "reason": "incorrect_result", "scored_at": "2026-06-12T00:00:00Z"}],
+    )
+
+    client = TestClient(app)
+    leaderboard_response = client.get("/tipping/leaderboard")
+    response = client.get("/tipping/leaderboard/checked-bot/tips")
+
+    assert leaderboard_response.status_code == 200
+    assert 'href="/tipping/leaderboard/checked-bot/tips"' in leaderboard_response.text
+    assert response.status_code == 200
+    assert "Checked Bot Tips" in response.text
+    assert "Mexico vs South Africa" in response.text
+    assert "1 - 0" in response.text
+    assert "80%" in response.text
+    assert "3 - 2" not in response.text
+    assert "incorrect_result" not in response.text
+    assert ">1.5<" not in response.text
+    assert ">Actual<" not in response.text
+    assert ">Outcome<" not in response.text
+    assert ">Points<" not in response.text
+    assert "completed" not in response.text
 
 
 def test_admin_clear_workflow_data_uses_temp_store(tmp_path, monkeypatch) -> None:
