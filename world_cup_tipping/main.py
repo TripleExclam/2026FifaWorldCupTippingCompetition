@@ -31,7 +31,7 @@ from .models import (
     winner_from_score,
 )
 from .runner import RunnerConfig, run_due_once
-from .scoring import leaderboard, validate_prediction
+from .scoring import leaderboard, leaderboard_snake, validate_prediction
 from .simulation import SimulationConfig, simulate_contestant
 from .storage import PROJECT_ROOT, get_store
 
@@ -170,6 +170,7 @@ def load_context(request: Request) -> dict[str, Any]:
     simulation_runs = store.read("simulation_runs.json")
     run_log = list(reversed(store.read("run_log.json")[-10:]))
     run_date = simulation_run_date()
+    current_leaderboard = leaderboard(registry, scores)
     return {
         "request": request,
         "fixtures": fixtures,
@@ -189,7 +190,8 @@ def load_context(request: Request) -> dict[str, Any]:
             run_date,
         ),
         "fixture_prediction_rows": fixture_prediction_rows_by_match(fixtures, registry, predictions, scores),
-        "leaderboard": leaderboard(registry, scores),
+        "leaderboard": current_leaderboard,
+        "leaderboard_snake": leaderboard_snake(registry, fixtures, scores),
         "summary": schedule_summary(fixtures),
         "run_log": run_log,
         "is_admin": is_admin(request),

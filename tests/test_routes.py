@@ -89,6 +89,11 @@ def test_leaderboard_page_aggregates_tied_scores_into_ranks(tmp_path, monkeypatc
     response = client.get("/tipping/leaderboard")
 
     assert response.status_code == 200
+    assert "data-leaderboard-snake" in response.text
+    assert 'data-snake-contestant="alpha"' in response.text
+    assert 'class="snake-axis-title"' in response.text
+    assert 'class="snake-name-label"' in response.text
+    assert 'data-contestant-id="alpha"' in response.text
     assert re.findall(r'<span class="rank-badge">(\d+)</span>', response.text) == ["1", "2", "2", "4"]
     assert re.findall(r'data-sort-rank="(\d+)"', response.text) == ["1", "2", "2", "4"]
 
@@ -211,6 +216,17 @@ def test_schedule_page_shows_fixture_prediction_details(tmp_path, monkeypatch) -
     assert "data-expandable-row" in response.text
     assert "data-fixture-toggle" in response.text
     assert "fixture-predictions-2026-001" in response.text
+    assert '<table class="mini-table fixture-prediction-table" data-sortable-table>' in response.text
+    assert '<button type="button" data-sort-key="contestant">API / User</button>' in response.text
+    assert '<button type="button" data-sort-key="prediction">Prediction</button>' in response.text
+    assert '<button type="button" data-sort-key="winner">Winner</button>' in response.text
+    assert '<button type="button" data-sort-key="confidence" data-sort-type="number">Confidence</button>' in response.text
+    assert '<button type="button" data-sort-key="outcome">Outcome</button>' in response.text
+    assert 'data-sort-contestant="Checked Bot"' in response.text
+    assert 'data-sort-prediction="2-1"' in response.text
+    assert 'data-sort-winner="Mexico"' in response.text
+    assert 'data-sort-confidence="0.8"' in response.text
+    assert 'data-sort-outcome="exact_score 1.5"' in response.text
     assert "1 / 2 submitted" in response.text
     assert "Checked Bot" in response.text
     assert "2 - 1" in response.text

@@ -121,20 +121,27 @@
 
             {% if fixture_predictions and fixture_predictions.rows %}
             <div class="fixture-prediction-scroll">
-              <table class="mini-table fixture-prediction-table">
+              <table class="mini-table fixture-prediction-table" data-sortable-table>
                 <thead>
                   <tr>
-                    <th>API / User</th>
-                    <th>Prediction</th>
-                    <th>Winner</th>
-                    <th>Confidence</th>
-                    <th>Outcome</th>
+                    <th><button type="button" data-sort-key="contestant">API / User</button></th>
+                    <th><button type="button" data-sort-key="prediction">Prediction</button></th>
+                    <th><button type="button" data-sort-key="winner">Winner</button></th>
+                    <th><button type="button" data-sort-key="confidence" data-sort-type="number">Confidence</button></th>
+                    <th><button type="button" data-sort-key="outcome">Outcome</button></th>
                   </tr>
                 </thead>
                 <tbody>
                   {% for row in fixture_predictions.rows %}
                   {% set prediction = row.prediction %}
-                  <tr>
+                  <tr
+                    data-search="{{ row.contestant.name }} {{ row.contestant.status }} {% if prediction %}{{ prediction.predicted_score_a }} {{ prediction.predicted_score_b }} {{ prediction.predicted_winner or 'Draw' }}{% elif row.prediction_record and not row.prediction_record.valid %}Invalid response{% else %}No prediction{% endif %} {{ row.score.reason if row.score else '' }}"
+                    data-sort-contestant="{{ row.contestant.name }}"
+                    data-sort-prediction="{% if prediction %}{{ prediction.predicted_score_a }}-{{ prediction.predicted_score_b }}{% elif row.prediction_record and not row.prediction_record.valid %}Invalid response{% else %}No prediction{% endif %}"
+                    data-sort-winner="{% if prediction %}{{ prediction.predicted_winner or 'Draw' }}{% else %}TBD{% endif %}"
+                    data-sort-confidence="{{ prediction.confidence if prediction and prediction.confidence is not none else -1 }}"
+                    data-sort-outcome="{% if row.score %}{{ row.score.reason }} {{ row.score.points }}{% elif row.prediction_record and not row.prediction_record.valid %}invalid{% else %}unscored{% endif %}"
+                  >
                     <td>
                       {% if row.registered %}
                         <a class="contestant-link" href="{{ app_path('/leaderboard/' ~ row.contestant.id) }}">{{ row.contestant.name }}</a>

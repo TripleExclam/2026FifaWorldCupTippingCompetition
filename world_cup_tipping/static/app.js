@@ -61,8 +61,21 @@ function normalize(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function tableBody(table) {
+  return table.tBodies[0] || null;
+}
+
 function sortableRows(table) {
-  return [...table.querySelectorAll("tbody tr")].filter((row) => row.hasAttribute("data-search"));
+  const body = tableBody(table);
+  return body ? [...body.children].filter((row) => row.matches("tr[data-search]")) : [];
+}
+
+function sortableButtons(table) {
+  return table.tHead ? [...table.tHead.querySelectorAll("[data-sort-key]")] : [];
+}
+
+function tableWrap(table) {
+  return table.parentElement?.classList.contains("table-wrap") ? table.parentElement : null;
 }
 
 function getSearchInput(table) {
@@ -122,7 +135,7 @@ function applyTableFilters(table) {
     }
   });
 
-  table.closest(".table-wrap")?.setAttribute("data-visible-rows", String(visibleCount));
+  tableWrap(table)?.setAttribute("data-visible-rows", String(visibleCount));
 }
 
 function compareRows(a, b, key, type, direction) {
@@ -147,9 +160,13 @@ function sortTable(table, button) {
   const key = button.getAttribute("data-sort-key");
   const type = button.getAttribute("data-sort-type") || "text";
   const direction = button.getAttribute("data-direction") === "asc" ? "desc" : "asc";
-  const body = table.querySelector("tbody");
+  const body = tableBody(table);
 
-  table.querySelectorAll("[data-sort-key]").forEach((item) => {
+  if (!body) {
+    return;
+  }
+
+  sortableButtons(table).forEach((item) => {
     item.removeAttribute("data-direction");
   });
   button.setAttribute("data-direction", direction);
@@ -168,7 +185,7 @@ function sortTable(table, button) {
 }
 
 function initializeTable(table) {
-  table.querySelectorAll("[data-sort-key]").forEach((button) => {
+  sortableButtons(table).forEach((button) => {
     button.addEventListener("click", () => sortTable(table, button));
   });
 
@@ -410,6 +427,71 @@ function initializeBracketScroll() {
   });
 }
 
+function setSnakeActive(root, contestantId, locked) {
+  root.querySelectorAll("[data-snake-contestant]").forEach((item) => {
+    const active = Boolean(contestantId) && item.getAttribute("data-snake-contestant") === contestantId;
+    item.classList.toggle("is-active", active);
+    item.classList.toggle("is-dimmed", Boolean(contestantId) && !active);
+    if (item instanceof HTMLButtonElement) {
+      item.setAttribute("aria-pressed", String(Boolean(locked) && active));
+    }
+  });
+
+  document.querySelectorAll("[data-contestant-id]").forEach((row) => {
+    const active = Boolean(contestantId) && row.getAttribute("data-contestant-id") === contestantId;
+    row.classList.toggle("is-snake-highlight", active);
+  });
+}
+
+function lockedSnakeContestant(root) {
+  return root.getAttribute("data-locked-contestant") || "";
+}
+
+function initializeLeaderboardSnake() {
+  document.querySelectorAll("[data-leaderboard-snake]").forEach((root) => {
+    root.querySelectorAll("[data-snake-contestant]").forEach((item) => {
+      const contestantId = item.getAttribute("data-snake-contestant");
+      if (!contestantId) {
+        return;
+      }
+
+      item.addEventListener("mouseenter", () => {
+        if (!lockedSnakeContestant(root)) {
+          setSnakeActive(root, contestantId, false);
+        }
+      });
+      item.addEventListener("mouseleave", () => {
+        if (!lockedSnakeContestant(root)) {
+          setSnakeActive(root, "", false);
+        }
+      });
+      item.addEventListener("focus", () => {
+        if (!lockedSnakeContestant(root)) {
+          setSnakeActive(root, contestantId, false);
+        }
+      });
+      item.addEventListener("blur", () => {
+        if (!lockedSnakeContestant(root)) {
+          setSnakeActive(root, "", false);
+        }
+      });
+      item.addEventListener("click", () => {
+        const nextContestantId = lockedSnakeContestant(root) === contestantId ? "" : contestantId;
+        root.setAttribute("data-locked-contestant", nextContestantId);
+        setSnakeActive(root, nextContestantId, Boolean(nextContestantId));
+      });
+    });
+
+    root.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      root.setAttribute("data-locked-contestant", "");
+      setSnakeActive(root, "", false);
+    });
+  });
+}
+
 setInitialTheme();
 initializeThemeToggle();
 formatTimes();
@@ -417,4 +499,5 @@ initializeAutoSubmitControls();
 initializeApiTester();
 initializeBracketScroll();
 initializeExpandableRows();
+initializeLeaderboardSnake();
 document.querySelectorAll("[data-sortable-table]").forEach(initializeTable);

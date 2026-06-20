@@ -9,6 +9,166 @@
   <span>{{ leaderboard|length }} contestants</span>
 </section>
 
+<section class="panel leaderboard-snake" data-leaderboard-snake>
+  <div class="snake-head">
+    <div>
+      <h2>Leaderboard snake</h2>
+      {% if leaderboard_snake.checkpoints %}
+        <p class="page-subtitle">
+          {{ leaderboard_snake.latest_scored_checkpoint.label }} scored;
+          {{ leaderboard_snake.remaining_count }} matches left
+        </p>
+      {% else %}
+        <p class="page-subtitle">No scored matches yet</p>
+      {% endif %}
+    </div>
+    {% if leaderboard_snake.checkpoints %}
+      <div class="snake-summary" aria-label="Snake summary">
+        <span>{{ leaderboard_snake.scored_count }} scored</span>
+        <span>{{ leaderboard_snake.remaining_count }} left</span>
+        <span>{{ leaderboard_snake.movement_count }} movers</span>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if leaderboard_snake.checkpoints %}
+    <div class="snake-scroll">
+      <svg
+        class="snake-chart"
+        viewBox="0 0 {{ leaderboard_snake.chart.width }} {{ leaderboard_snake.chart.height }}"
+        role="img"
+        aria-labelledby="leaderboard-snake-title leaderboard-snake-desc"
+      >
+        <title id="leaderboard-snake-title">Leaderboard snake</title>
+        <desc id="leaderboard-snake-desc">Contestant places through {{ leaderboard_snake.latest_scored_checkpoint.label }}, with {{ leaderboard_snake.remaining_count }} remaining fixtures shown.</desc>
+        <g class="snake-grid" aria-hidden="true">
+          {% if leaderboard_snake.future_zone %}
+            <rect
+              class="snake-future-zone"
+              x="{{ leaderboard_snake.future_zone.x }}"
+              y="{{ leaderboard_snake.future_zone.y }}"
+              width="{{ leaderboard_snake.future_zone.width }}"
+              height="{{ leaderboard_snake.future_zone.height }}"
+              rx="6"
+            ></rect>
+            <text
+              class="snake-horizon-label"
+              x="{{ leaderboard_snake.future_zone.label_x }}"
+              y="{{ leaderboard_snake.future_zone.label_y }}"
+              text-anchor="middle"
+            >{{ leaderboard_snake.future_zone.label }}</text>
+          {% endif %}
+          <text
+            class="snake-axis-title"
+            x="{{ leaderboard_snake.chart.plot_left - 14 }}"
+            y="{{ leaderboard_snake.chart.plot_top - 10 }}"
+            text-anchor="end"
+          >pts</text>
+          {% for guide in leaderboard_snake.point_guides %}
+            <line
+              class="snake-grid-line"
+              x1="{{ leaderboard_snake.chart.plot_left }}"
+              y1="{{ guide.y }}"
+              x2="{{ leaderboard_snake.chart.width - leaderboard_snake.chart.plot_right }}"
+              y2="{{ guide.y }}"
+            ></line>
+            <text class="snake-axis-label" x="{{ leaderboard_snake.chart.plot_left - 14 }}" y="{{ guide.y + 4 }}" text-anchor="end">{{ guide.label }}</text>
+          {% endfor %}
+          {% for checkpoint in leaderboard_snake.checkpoints %}
+            {% if checkpoint.show_label %}
+              <line
+                class="snake-checkpoint-line {% if checkpoint.is_future %}is-future{% endif %}"
+                x1="{{ checkpoint.x }}"
+                y1="{{ leaderboard_snake.chart.plot_top }}"
+                x2="{{ checkpoint.x }}"
+                y2="{{ leaderboard_snake.chart.height - leaderboard_snake.chart.plot_bottom }}"
+              ></line>
+              <text
+                class="snake-axis-label {% if checkpoint.is_future %}is-future{% endif %}"
+                x="{{ checkpoint.x }}"
+                y="{{ leaderboard_snake.chart.height - 16 }}"
+                text-anchor="middle"
+              >{{ checkpoint.short_label }}</text>
+            {% endif %}
+          {% endfor %}
+        </g>
+        <g class="snake-lines">
+          {% for contestant in leaderboard_snake.contestants %}
+            {% set first_point = contestant.history[0] %}
+            {% set current_point = contestant.current %}
+            <g
+              class="snake-contestant"
+              data-snake-contestant="{{ contestant.contestant_id }}"
+              tabindex="0"
+              aria-label="{{ contestant.aria_label }}"
+            >
+              <title>{{ contestant.aria_label }}</title>
+              <path class="snake-path" d="{{ contestant.path }}" stroke="{{ contestant.color }}"></path>
+              <circle
+                class="snake-start-dot"
+                cx="{{ first_point.x }}"
+                cy="{{ first_point.y }}"
+                r="3"
+                stroke="{{ contestant.color }}"
+              ></circle>
+              <circle
+                class="snake-current-dot"
+                cx="{{ current_point.x }}"
+                cy="{{ current_point.y }}"
+                r="5"
+                fill="{{ contestant.color }}"
+              ></circle>
+              {% if current_point.show_label_stem %}
+                <line
+                  class="snake-label-stem"
+                  x1="{{ current_point.x + 7 }}"
+                  y1="{{ current_point.y }}"
+                  x2="{{ current_point.label_x - 4 }}"
+                  y2="{{ current_point.y }}"
+                  stroke="{{ contestant.color }}"
+                ></line>
+              {% endif %}
+              <text
+                class="snake-name-label"
+                x="{{ current_point.label_x }}"
+                y="{{ current_point.label_y }}"
+                fill="{{ contestant.color }}"
+              >{{ contestant.name }}</text>
+            </g>
+          {% endfor %}
+        </g>
+      </svg>
+    </div>
+
+    {% if leaderboard_snake.movers %}
+      <div class="snake-movers" aria-label="Latest movement">
+        {% for mover in leaderboard_snake.movers %}
+          <span class="snake-mover {{ mover.last_move_direction }}">{{ mover.name }} {{ mover.last_move_label }}</span>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <div class="snake-legend" aria-label="Contestants">
+      {% for contestant in leaderboard_snake.contestants %}
+        <button
+          class="snake-chip"
+          type="button"
+          data-snake-contestant="{{ contestant.contestant_id }}"
+          aria-pressed="false"
+        >
+          <svg class="snake-chip-swatch" viewBox="0 0 12 12" aria-hidden="true">
+            <circle cx="6" cy="6" r="5" fill="{{ contestant.color }}"></circle>
+          </svg>
+          <span>{{ contestant.name }}</span>
+          <strong>#{{ contestant.current_rank }}</strong>
+        </button>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="empty">The snake will appear once matches have been scored.</p>
+  {% endif %}
+</section>
+
 <section class="table-tools">
   <label>Search <input type="search" data-table-search="leaderboard-table" placeholder="Contestant or status"></label>
   <label>Status
@@ -41,6 +201,7 @@
       {% endif %}
       {% set simulation = latest_simulations.get(row.contestant_id) %}
       <tr
+        data-contestant-id="{{ row.contestant_id }}"
         data-search="{{ row.name }} {{ row.status }} {{ simulation.champion if simulation else '' }}"
         data-status="{{ row.status }}"
         data-sort-rank="{{ rank.value }}"

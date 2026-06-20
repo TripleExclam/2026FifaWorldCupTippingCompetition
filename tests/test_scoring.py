@@ -1,4 +1,4 @@
-from world_cup_tipping.scoring import score_prediction, validate_prediction
+from world_cup_tipping.scoring import leaderboard_snake, score_prediction, validate_prediction
 
 
 def fixture(stage: str = "group", score_a: int = 2, score_b: int = 1, winner: str | None = "Mexico") -> dict:
@@ -139,3 +139,47 @@ def test_knockout_drawn_exact_score_only_gets_exact_bonus() -> None:
     )
     assert points == 0.5
     assert reason == "exact_score"
+
+
+def test_leaderboard_snake_tracks_places_and_tied_ranks_over_matches() -> None:
+    registry = [
+        {"id": "alpha", "name": "Alpha", "status": "active"},
+        {"id": "bravo", "name": "Bravo", "status": "active"},
+        {"id": "charlie", "name": "Charlie", "status": "active"},
+    ]
+    fixtures = [
+        {"match_id": "2026-001", "match_number": 1, "stage": "group"},
+        {"match_id": "2026-002", "match_number": 2, "stage": "group"},
+        {"match_id": "2026-003", "match_number": 3, "stage": "group"},
+    ]
+    scores = [
+        {"contestant_id": "alpha", "match_id": "2026-001", "points": 1.0},
+        {"contestant_id": "bravo", "match_id": "2026-001", "points": 0.0},
+        {"contestant_id": "charlie", "match_id": "2026-001", "points": 1.5},
+        {"contestant_id": "alpha", "match_id": "2026-002", "points": 1.0},
+        {"contestant_id": "bravo", "match_id": "2026-002", "points": 2.0},
+        {"contestant_id": "charlie", "match_id": "2026-002", "points": 0.0},
+    ]
+
+    snake = leaderboard_snake(registry, fixtures, scores)
+    rows = {row["contestant_id"]: row for row in snake["contestants"]}
+
+    assert [checkpoint["short_label"] for checkpoint in snake["checkpoints"]] == ["Start", "M1", "M2", "M3"]
+    assert [point["place"] for point in rows["alpha"]["history"]] == [1, 2, 1]
+    assert [point["place"] for point in rows["bravo"]["history"]] == [2, 3, 2]
+    assert [point["place"] for point in rows["charlie"]["history"]] == [3, 1, 3]
+    assert rows["alpha"]["current_rank"] == 1
+    assert rows["bravo"]["current_rank"] == 1
+    assert rows["charlie"]["current_rank"] == 3
+    assert rows["alpha"]["last_move_label"] == "up 1"
+    assert rows["charlie"]["last_move_label"] == "down 2"
+    assert rows["alpha"]["current"]["y"] == rows["bravo"]["current"]["y"]
+    assert rows["alpha"]["current"]["y"] < rows["charlie"]["current"]["y"]
+    assert rows["alpha"]["current"]["label_x"] > rows["alpha"]["current"]["x"]
+    assert rows["bravo"]["current"]["label_x"] > rows["alpha"]["current"]["label_x"]
+    assert rows["alpha"]["current"]["show_label_stem"] is True
+    assert rows["bravo"]["current"]["show_label_stem"] is False
+    assert snake["point_guides"][0]["label"] == "0"
+    assert snake["remaining_count"] == 1
+    assert snake["future_zone"]["label"] == "1 games left / 1.5 pts available"
+    assert snake["chart"]["plot_right"] >= 150
