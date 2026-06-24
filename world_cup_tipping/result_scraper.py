@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import unicodedata
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
@@ -17,6 +19,16 @@ FIFA_API_BASE_URL = "https://api.fifa.com/api/v3"
 FIFA_WORLD_CUP_COMPETITION_ID = "17"
 FIFA_WORLD_CUP_2026_SEASON_ID = "285023"
 FIFA_PLAYED_MATCH_STATUS = 0
+TEAM_NAME_ALIASES = {
+    "cabo verde": "cape verde",
+    "cote d ivoire": "ivory coast",
+    "cote divoire": "ivory coast",
+    "congo dr": "dr congo",
+    "czechia": "czech republic",
+    "ir iran": "iran",
+    "turkiye": "turkey",
+    "usa": "united states",
+}
 
 
 @dataclass(frozen=True)
@@ -169,9 +181,14 @@ def apply_scraped_results(fixtures: list[dict[str, Any]], scraped_results: list[
         for fixture in fixtures
         if isinstance(fixture.get("match_number"), int)
     }
+    fixtures_by_team_pair: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for fixture in fixtures:
+        pair_key = _team_pair_key(fixture.get("team_a"), fixture.get("team_b"))
+        if pair_key is not None:
+            fixtures_by_team_pair.setdefault(pair_key, []).append(fixture)
 
     for result in scraped_results:
-        fixture = fixtures_by_number.get(result.match_number)
+        fixture = _fixture_for_result(result, fixtures_by_number, fixtures_by_team_pair)
         if fixture is None:
             continue
         report.matched += 1
@@ -180,20 +197,24 @@ def apply_scraped_results(fixtures: list[dict[str, Any]], scraped_results: list[
             report.team_updates += 1
 
         if not result.completed or result.score_a is None or result.score_b is None:
+            if _clear_stale_fifa_result(fixture):
+                report.result_updates += 1
+                report.changed_match_ids.append(fixture["match_id"])
             continue
 
+        score_a, score_b, penalty_score_a, penalty_score_b, winner_side = _fixture_result_values(fixture, result)
         payload = {
-            "score_a": result.score_a,
-            "score_b": result.score_b,
-            "winner": _fixture_winner(fixture, result),
+            "score_a": score_a,
+            "score_b": score_b,
+            "winner": _fixture_winner(fixture, score_a, score_b, winner_side),
             "status": "completed",
             "result_source": "fifa",
             "source_match_id": result.source_match_id,
         }
-        if result.penalty_score_a is not None or "penalty_score_a" in fixture:
-            payload["penalty_score_a"] = result.penalty_score_a
-        if result.penalty_score_b is not None or "penalty_score_b" in fixture:
-            payload["penalty_score_b"] = result.penalty_score_b
+        if penalty_score_a is not None or "penalty_score_a" in fixture:
+            payload["penalty_score_a"] = penalty_score_a
+        if penalty_score_b is not None or "penalty_score_b" in fixture:
+            payload["penalty_score_b"] = penalty_score_b
 
         score_changed = any(fixture.get(field) != payload[field] for field in ["score_a", "score_b", "winner", "status"])
         payload_changed = any(fixture.get(field) != value for field, value in payload.items())
@@ -237,6 +258,27 @@ async def scrape_results_once(
     return report.as_dict()
 
 
+def _fixture_for_result(
+    result: ScrapedResult,
+    fixtures_by_number: dict[int, dict[str, Any]],
+    fixtures_by_team_pair: dict[tuple[str, str], list[dict[str, Any]]],
+) -> dict[str, Any] | None:
+    fixture = fixtures_by_number.get(result.match_number)
+    if fixture is not None:
+        if _result_matches_fixture_teams(fixture, result):
+            return fixture
+        if _team_pair_key(fixture.get("team_a"), fixture.get("team_b")) is None:
+            return fixture
+
+    result_pair_key = _team_pair_key(result.team_a, result.team_b)
+    if result_pair_key is not None:
+        candidates = fixtures_by_team_pair.get(result_pair_key, [])
+        if len(candidates) == 1:
+            return candidates[0]
+
+    return fixture
+
+
 def _apply_resolved_teams(fixture: dict[str, Any], result: ScrapedResult) -> bool:
     changed = False
     if result.team_a and not fixture.get("team_a"):
@@ -248,19 +290,103 @@ def _apply_resolved_teams(fixture: dict[str, Any], result: ScrapedResult) -> boo
     return changed
 
 
-def _fixture_winner(fixture: dict[str, Any], result: ScrapedResult) -> str | None:
-    if result.score_a is None or result.score_b is None:
+def _fixture_result_values(
+    fixture: dict[str, Any],
+    result: ScrapedResult,
+) -> tuple[int, int, int | None, int | None, str | None]:
+    score_a = result.score_a
+    score_b = result.score_b
+    penalty_score_a = result.penalty_score_a
+    penalty_score_b = result.penalty_score_b
+    winner_side = result.winner_side
+
+    if _result_side_order(fixture, result) == "swapped":
+        score_a, score_b = score_b, score_a
+        penalty_score_a, penalty_score_b = penalty_score_b, penalty_score_a
+        if winner_side == "team_a":
+            winner_side = "team_b"
+        elif winner_side == "team_b":
+            winner_side = "team_a"
+
+    if score_a is None or score_b is None:
+        raise ValueError("Completed scraped result is missing scores")
+    return score_a, score_b, penalty_score_a, penalty_score_b, winner_side
+
+
+def _fixture_winner(
+    fixture: dict[str, Any],
+    score_a: int | None,
+    score_b: int | None,
+    winner_side: str | None,
+) -> str | None:
+    if score_a is None or score_b is None:
         return None
-    score_result = result_key(result.score_a, result.score_b)
+    score_result = result_key(score_a, score_b)
     if score_result == "team_a":
-        return fixture.get("team_a") or result.team_a
+        return fixture.get("team_a")
     if score_result == "team_b":
-        return fixture.get("team_b") or result.team_b
-    if result.winner_side == "team_a":
-        return fixture.get("team_a") or result.team_a
-    if result.winner_side == "team_b":
-        return fixture.get("team_b") or result.team_b
+        return fixture.get("team_b")
+    if winner_side == "team_a":
+        return fixture.get("team_a")
+    if winner_side == "team_b":
+        return fixture.get("team_b")
     return None
+
+
+def _clear_stale_fifa_result(fixture: dict[str, Any]) -> bool:
+    if fixture.get("result_source") != "fifa":
+        return False
+
+    changed = False
+    for field in ["score_a", "score_b", "winner"]:
+        if fixture.get(field) is not None:
+            fixture[field] = None
+            changed = True
+    if fixture.get("status") != "scheduled":
+        fixture["status"] = "scheduled"
+        changed = True
+    for field in ["penalty_score_a", "penalty_score_b", "result_source", "source_match_id"]:
+        if field in fixture:
+            fixture.pop(field)
+            changed = True
+    return changed
+
+
+def _result_matches_fixture_teams(fixture: dict[str, Any], result: ScrapedResult) -> bool:
+    return _result_side_order(fixture, result) is not None
+
+
+def _result_side_order(fixture: dict[str, Any], result: ScrapedResult) -> str | None:
+    fixture_a = _normalized_team_name(fixture.get("team_a"))
+    fixture_b = _normalized_team_name(fixture.get("team_b"))
+    result_a = _normalized_team_name(result.team_a)
+    result_b = _normalized_team_name(result.team_b)
+    if not fixture_a or not fixture_b or not result_a or not result_b:
+        return None
+    if fixture_a == result_a and fixture_b == result_b:
+        return "same"
+    if fixture_a == result_b and fixture_b == result_a:
+        return "swapped"
+    return None
+
+
+def _team_pair_key(team_a: Any, team_b: Any) -> tuple[str, str] | None:
+    normalized_a = _normalized_team_name(team_a)
+    normalized_b = _normalized_team_name(team_b)
+    if not normalized_a or not normalized_b:
+        return None
+    return tuple(sorted((normalized_a, normalized_b)))
+
+
+def _normalized_team_name(value: Any) -> str | None:
+    if not value:
+        return None
+    normalized = unicodedata.normalize("NFKD", str(value).casefold())
+    ascii_name = "".join(char for char in normalized if not unicodedata.combining(char))
+    folded = re.sub(r"[^a-z0-9]+", " ", ascii_name).strip()
+    if not folded:
+        return None
+    return TEAM_NAME_ALIASES.get(folded, folded)
 
 
 def _winner_side(

@@ -5,14 +5,16 @@ import hashlib
 import json
 import os
 import re
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 from uuid import uuid4
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
-from fastapi import APIRouter, Cookie, FastAPI, Form, HTTPException, Request
+from fastapi import APIRouter, Cookie, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -39,6 +41,7 @@ from .storage import PROJECT_ROOT, get_store
 PACKAGE_DIR = Path(__file__).resolve().parent
 BASE_PATH = "/tipping"
 SIMULATION_RUN_RETENTION = 1000
+DEFAULT_DISPLAY_TIMEZONE = "Australia/Sydney"
 app = FastAPI(title="World Cup Tipping")
 
 
@@ -190,6 +193,7 @@ def load_context(request: Request) -> dict[str, Any]:
             run_date,
         ),
         "fixture_prediction_rows": fixture_prediction_rows_by_match(fixtures, registry, predictions, scores),
+        "today_games": today_games_context(fixtures),
         "leaderboard": current_leaderboard,
         "leaderboard_snake": leaderboard_snake(registry, fixtures, scores),
         "summary": schedule_summary(fixtures),
@@ -203,6 +207,60 @@ def schedule_summary(fixtures: list[dict[str, Any]]) -> dict[str, int]:
     completed = sum(1 for fixture in fixtures if is_completed_fixture(fixture))
     scheduled = len(fixtures) - completed
     return {"total": len(fixtures), "completed": completed, "scheduled": scheduled}
+
+
+def display_timezone() -> ZoneInfo:
+    timezone_name = os.getenv("WCT_DISPLAY_TIMEZONE", DEFAULT_DISPLAY_TIMEZONE).strip() or DEFAULT_DISPLAY_TIMEZONE
+    try:
+        return ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("UTC")
+
+
+def today_games_context(fixtures: list[dict[str, Any]], requested_date: str | None = None) -> dict[str, Any]:
+    timezone = display_timezone()
+    today_date = utc_now().astimezone(timezone).date()
+    selected_date = selected_display_date(requested_date, today_date)
+    previous_date = selected_date - timedelta(days=1) if selected_date > today_date else None
+    next_date = selected_date + timedelta(days=1)
+    return {
+        "date": selected_date.isoformat(),
+        "is_today": selected_date == today_date,
+        "min_date": today_date.isoformat(),
+        "previous_date": previous_date.isoformat() if previous_date else None,
+        "next_date": next_date.isoformat(),
+        "timezone": getattr(timezone, "key", "UTC"),
+        "fixtures": fixtures_for_display_date(fixtures, selected_date, timezone),
+    }
+
+
+def selected_display_date(requested_date: str | None, today_date: date) -> date:
+    if not requested_date:
+        return today_date
+    try:
+        selected_date = date.fromisoformat(requested_date)
+    except ValueError:
+        return today_date
+    return selected_date if selected_date >= today_date else today_date
+
+
+def fixtures_for_display_date(
+    fixtures: list[dict[str, Any]],
+    target_date: date,
+    timezone: ZoneInfo,
+) -> list[dict[str, Any]]:
+    rows = []
+    for fixture in fixtures:
+        kickoff_at = fixture.get("kickoff_at")
+        if not kickoff_at:
+            continue
+        try:
+            fixture_date = parse_iso_z(kickoff_at).astimezone(timezone).date()
+        except ValueError:
+            continue
+        if fixture_date == target_date:
+            rows.append(fixture)
+    return sorted(rows, key=lambda item: item.get("kickoff_at") or "")
 
 
 def score_lookup(scores: list[dict[str, Any]]) -> dict[tuple[str, str], dict[str, Any]]:
@@ -405,6 +463,13 @@ def root_favicon():
 @router.get("/")
 def schedule_page(request: Request):
     return templates.TemplateResponse(request, "schedule.html", load_context(request))
+
+
+@router.get("/today")
+def today_page(request: Request, selected_date: str | None = Query(default=None, alias="date")):
+    context = load_context(request)
+    context["today_games"] = today_games_context(context["fixtures"], selected_date)
+    return templates.TemplateResponse(request, "today.html", context)
 
 
 @router.get("/favicon.ico")

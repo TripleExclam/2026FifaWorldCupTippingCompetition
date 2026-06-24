@@ -115,6 +115,98 @@ def test_apply_scraped_results_updates_completed_matches_only_and_preserves_loca
     assert fixtures[1]["status"] == "scheduled"
 
 
+def test_apply_scraped_results_matches_by_teams_when_fifa_match_numbers_are_swapped() -> None:
+    fixtures = [
+        fixture(31, team_a="United States", team_b="Australia"),
+        fixture(32, team_a="Turkey", team_b="Paraguay"),
+    ]
+    scraped = [
+        ScrapedResult(
+            match_number=32,
+            source_match_id="usa-aus",
+            team_a="USA",
+            team_b="Australia",
+            score_a=2,
+            score_b=0,
+            penalty_score_a=None,
+            penalty_score_b=None,
+            winner_side="team_a",
+            match_status=0,
+            result_type=1,
+            officiality_status=1,
+            completed=True,
+        ),
+        ScrapedResult(
+            match_number=31,
+            source_match_id="tur-par",
+            team_a="Türkiye",
+            team_b="Paraguay",
+            score_a=None,
+            score_b=None,
+            penalty_score_a=None,
+            penalty_score_b=None,
+            winner_side=None,
+            match_status=1,
+            result_type=0,
+            officiality_status=0,
+            completed=False,
+        ),
+    ]
+
+    report = apply_scraped_results(fixtures, scraped)
+
+    assert report.result_updates == 1
+    assert report.changed_match_ids == ["2026-031"]
+    assert fixtures[0]["score_a"] == 2
+    assert fixtures[0]["score_b"] == 0
+    assert fixtures[0]["winner"] == "United States"
+    assert fixtures[0]["source_match_id"] == "usa-aus"
+    assert fixtures[1]["score_a"] is None
+    assert fixtures[1]["status"] == "scheduled"
+
+
+def test_apply_scraped_results_clears_stale_fifa_result_when_swapped_match_is_not_completed() -> None:
+    stale_fixture = fixture(32, team_a="Turkey", team_b="Paraguay")
+    stale_fixture.update(
+        {
+            "score_a": 2,
+            "score_b": 0,
+            "winner": "Turkey",
+            "status": "completed",
+            "result_source": "fifa",
+            "source_match_id": "usa-aus",
+        }
+    )
+    scraped = [
+        ScrapedResult(
+            match_number=31,
+            source_match_id="tur-par",
+            team_a="Türkiye",
+            team_b="Paraguay",
+            score_a=None,
+            score_b=None,
+            penalty_score_a=None,
+            penalty_score_b=None,
+            winner_side=None,
+            match_status=1,
+            result_type=0,
+            officiality_status=0,
+            completed=False,
+        )
+    ]
+
+    report = apply_scraped_results([stale_fixture], scraped)
+
+    assert report.result_updates == 1
+    assert report.changed_match_ids == ["2026-032"]
+    assert stale_fixture["score_a"] is None
+    assert stale_fixture["score_b"] is None
+    assert stale_fixture["winner"] is None
+    assert stale_fixture["status"] == "scheduled"
+    assert "result_source" not in stale_fixture
+    assert "source_match_id" not in stale_fixture
+
+
 def test_apply_scraped_results_resolves_knockout_teams_and_penalty_winner() -> None:
     knockout = fixture(89, team_a=None, team_b=None)
     knockout["stage"] = "round_of_16"
@@ -144,6 +236,34 @@ def test_apply_scraped_results_resolves_knockout_teams_and_penalty_winner() -> N
     assert knockout["winner"] == "Brazil"
     assert knockout["penalty_score_a"] == 4
     assert knockout["penalty_score_b"] == 5
+
+
+def test_apply_scraped_results_keeps_unresolved_knockout_match_number_over_team_pair() -> None:
+    group = fixture(1, team_a="Canada", team_b="Brazil")
+    knockout = fixture(89, team_a=None, team_b=None)
+    knockout["stage"] = "round_of_16"
+    knockout["group"] = None
+    knockout["team_a_placeholder"] = "Winner 74"
+    knockout["team_b_placeholder"] = "Winner 77"
+    result = parse_fifa_match(
+        fifa_match(
+            89,
+            home="Canada",
+            away="Brazil",
+            home_id="43899",
+            away_id="43924",
+            score_a=2,
+            score_b=1,
+            winner="43899",
+        )
+    )
+
+    apply_scraped_results([group, knockout], [result] if result is not None else [])
+
+    assert group["score_a"] is None
+    assert knockout["score_a"] == 2
+    assert knockout["score_b"] == 1
+    assert knockout["winner"] == "Canada"
 
 
 def test_scrape_results_once_removes_stale_scores_for_corrected_result(tmp_path: Path) -> None:

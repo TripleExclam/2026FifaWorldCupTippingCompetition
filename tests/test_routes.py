@@ -47,10 +47,12 @@ def test_tipping_pages_and_assets_are_served_under_prefix() -> None:
     assert 'src="/tipping/static/app.js?v=' in response.text
     assert 'href="/tipping/static/favicon.svg"' in response.text
     assert 'href="/tipping/schedule.json"' in response.text
+    assert 'href="/tipping/today"' in response.text
     assert 'href="/tipping/results"' not in response.text
     assert 'href="/tipping/admin"' not in response.text
 
     assert client.get("/tipping/results").status_code == 404
+    assert client.get("/tipping/today").status_code == 200
     assert client.get("/tipping/leaderboard").status_code == 200
     assert client.get("/tipping/admin").status_code == 200
     assert client.get("/tipping/schedule.json").status_code == 200
@@ -96,6 +98,114 @@ def test_leaderboard_page_aggregates_tied_scores_into_ranks(tmp_path, monkeypatc
     assert 'data-contestant-id="alpha"' in response.text
     assert re.findall(r'<span class="rank-badge">(\d+)</span>', response.text) == ["1", "2", "2", "4"]
     assert re.findall(r'data-sort-rank="(\d+)"', response.text) == ["1", "2", "2", "4"]
+
+
+def test_today_page_shows_games_with_predictions(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WCT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("WCT_DISPLAY_TIMEZONE", "Australia/Sydney")
+    monkeypatch.setattr("world_cup_tipping.main.utc_now", lambda: datetime(2026, 6, 11, 14, 0, tzinfo=UTC))
+    store = JsonStore(tmp_path)
+    store.ensure_defaults()
+    store.write(
+        "fixtures.json",
+        [
+            {
+                "match_id": "2026-001",
+                "match_number": 1,
+                "stage": "group",
+                "group": "A",
+                "team_a": "Mexico",
+                "team_b": "South Africa",
+                "kickoff_at": "2026-06-11T19:00:00Z",
+                "status": "scheduled",
+            },
+            {
+                "match_id": "2026-002",
+                "match_number": 2,
+                "stage": "group",
+                "group": "A",
+                "team_a": "Korea Republic",
+                "team_b": "Czech Republic",
+                "kickoff_at": "2026-06-12T02:00:00Z",
+                "status": "scheduled",
+            },
+            {
+                "match_id": "2026-003",
+                "match_number": 3,
+                "stage": "group",
+                "group": "B",
+                "team_a": "Canada",
+                "team_b": "Switzerland",
+                "kickoff_at": "2026-06-12T19:00:00Z",
+                "status": "scheduled",
+            },
+        ],
+    )
+    store.write(
+        "registry.json",
+        [
+            {"id": "checked-bot", "name": "Checked Bot", "url": "http://example.test/predict", "contact": "", "status": "active"},
+            {"id": "quiet-bot", "name": "Quiet Bot", "url": "http://quiet.test/predict", "contact": "", "status": "active"},
+        ],
+    )
+    store.write(
+        "predictions.json",
+        [
+            {
+                "contestant_id": "checked-bot",
+                "match_id": "2026-001",
+                "valid": True,
+                "prediction": {"predicted_score_a": 2, "predicted_score_b": 1, "predicted_winner": "Mexico", "confidence": 0.8},
+            }
+        ],
+    )
+
+    client = TestClient(app)
+    response = client.get("/tipping/today")
+
+    assert response.status_code == 200
+    assert "Today's Games" in response.text
+    assert "2026-06-12 · Australia/Sydney" in response.text
+    assert 'name="date" value="2026-06-12" min="2026-06-12"' in response.text
+    assert 'aria-label="Previous day" title="Previous day">&larr;</button>' in response.text
+    assert 'href="/tipping/today?date=2026-06-13" aria-label="Next day" title="Next day">&rarr;</a>' in response.text
+    assert 'id="today-table" data-sortable-table' in response.text
+    assert 'data-table-search="today-table"' not in response.text
+    assert 'data-table-filter="today-table"' not in response.text
+    assert '<button type="button" data-sort-key="number" data-sort-type="number">No.</button>' in response.text
+    assert '<button type="button" data-sort-key="result">Result</button>' in response.text
+    assert '<button type="button" data-sort-key="status">Status</button>' in response.text
+    assert "data-expandable-row" in response.text
+    assert "today-fixture-predictions-2026-001" in response.text
+    assert '<button type="button" data-sort-key="outcome">Outcome</button>' in response.text
+    assert "Mexico vs South Africa" in response.text
+    assert "Korea Republic vs Czech Republic" in response.text
+    assert "Canada vs Switzerland" not in response.text
+    assert "1 / 2 submitted" in response.text
+    assert 'data-sort-prediction="2-1"' in response.text
+    assert "Checked Bot" in response.text
+    assert "Quiet Bot" in response.text
+    assert "2 - 1" in response.text
+    assert "80%" in response.text
+    assert "No prediction" in response.text
+
+    future_response = client.get("/tipping/today?date=2026-06-13")
+
+    assert future_response.status_code == 200
+    assert "<h1>Games</h1>" in future_response.text
+    assert "2026-06-13 · Australia/Sydney" in future_response.text
+    assert 'name="date" value="2026-06-13" min="2026-06-12"' in future_response.text
+    assert 'href="/tipping/today?date=2026-06-12" aria-label="Previous day" title="Previous day">&larr;</a>' in future_response.text
+    assert 'href="/tipping/today?date=2026-06-14" aria-label="Next day" title="Next day">&rarr;</a>' in future_response.text
+    assert 'href="/tipping/today">Today</a>' in future_response.text
+    assert "Canada vs Switzerland" in future_response.text
+    assert "Mexico vs South Africa" not in future_response.text
+
+    past_response = client.get("/tipping/today?date=2026-06-11")
+
+    assert past_response.status_code == 200
+    assert "2026-06-12 · Australia/Sydney" in past_response.text
+    assert 'name="date" value="2026-06-12" min="2026-06-12"' in past_response.text
 
 
 def test_healthz_reports_basic_runtime_status(tmp_path, monkeypatch) -> None:

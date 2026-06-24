@@ -443,6 +443,30 @@ tr:last-child td {
   text-decoration: underline;
 }
 
+.today-games {
+  margin-bottom: 18px;
+}
+
+.today-date-tools {
+  grid-template-columns: auto minmax(190px, 240px) auto auto;
+}
+
+.today-date-actions {
+  gap: 8px;
+  justify-content: flex-start;
+}
+
+.today-date-nav {
+  align-self: end;
+}
+
+.today-arrow {
+  font-size: 18px;
+  min-height: 38px;
+  min-width: 38px;
+  padding: 7px 10px;
+}
+
 .leaderboard-snake {
   display: grid;
   gap: 12px;
